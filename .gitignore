@@ -1,0 +1,26 @@
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# ---- 运行时数据（含登录 cookies 的数据库，绝不入库）----
+backend/data/
+backend/*.db
+backend/*.db-journal
+
+# ---- Node ----
+frontend/node_modules/
+npm-cache/
+frontend/dist/
+
+# ---- 系统/编辑器 ----
+.DS_Store
+Thumbs.db
+*.log
+
+# ---- 临时 ----
+_*.py
+tmp/
