@@ -1,0 +1,15 @@
+# Docker 构建上下文排除
+.git
+.gitignore
+**/__pycache__
+**/*.pyc
+**/*.pyo
+backend/data
+*.db
+frontend/node_modules
+frontend/dist
+dist
+build
+*.spec
+.workbuddy
+*.log

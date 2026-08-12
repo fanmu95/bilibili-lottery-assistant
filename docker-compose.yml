@@ -1,0 +1,14 @@
+# B站抽奖助手 - NAS 部署（arm64 直接构建）
+# 用法：docker compose up -d --build
+# 访问：http://<NAS_IP>:8000
+services:
+  bili-lottery:
+    build: .
+    image: bili-lottery-assistant:latest
+    container_name: bili-lottery
+    ports:
+      - "8000:8000"
+    volumes:
+      # 数据持久化（配置/账号cookies/活动数据），升级容器不丢失
+      - ./data:/app/data
+    restart: unless-stopped

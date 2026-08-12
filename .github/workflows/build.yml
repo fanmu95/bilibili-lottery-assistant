@@ -21,6 +21,10 @@ jobs:
   windows-exe:
     name: Windows exe
     runs-on: windows-latest
+    env:
+      # Windows runner 偶发 schannel 证书校验失败（SEC_E_UNTRUSTED_ROOT），
+      # 跳过 SSL 校验保证 checkout 稳定（GitHub Actions 官方 runner 环境）
+      GIT_SSL_NO_VERIFY: "true"
     steps:
       - uses: actions/checkout@v4
 

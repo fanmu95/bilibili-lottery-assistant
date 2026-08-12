@@ -1,4 +1,6 @@
-fastapi>=0.115.0
+# fastapi<0.140：0.141+ 引入懒包含路由（_IncludedRouter），PyInstaller 打包后
+# 带路径参数的路由匹配异常（固定路径正常、{id} 类 404）
+fastapi>=0.115.0,<0.140
 uvicorn[standard]>=0.32.0
 sqlalchemy>=2.0.36
 pydantic>=2.10.0

@@ -2,6 +2,8 @@
 
 对齐 bilibinggo 契约的本地控制台 API。
 """
+import os
+import sys
 from datetime import datetime
 
 from fastapi import Depends, FastAPI
@@ -90,6 +92,51 @@ def summary(db: Session = Depends(get_db)):
         "pending": pending, "participated": participated,
         "logs": log_count,
     }
+
+
+# ---------------------------------------------------------------------------
+# 生产模式：托管前端构建产物（dist），单端口访问（浏览器打开 http://localhost:8000）
+#  - exe 打包：dist 内嵌进可执行文件（sys._MEIPASS/dist）
+#  - Docker：dist 复制进镜像（frontend/dist）
+#  - 源码运行：定位项目内 frontend/dist（构建过才有）
+# ---------------------------------------------------------------------------
+def _find_frontend_dist() -> str | None:
+    candidates = []
+    if getattr(sys, "_MEIPASS", None):
+        candidates.append(os.path.join(sys._MEIPASS, "dist"))
+    _here = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(_here, "..", "frontend", "dist"))      # backend/../frontend/dist
+    candidates.append(os.path.join(_here, "..", "..", "frontend", "dist"))
+    for c in candidates:
+        if os.path.isdir(c) and os.path.exists(os.path.join(c, "index.html")):
+            return c
+    return None
+
+
+_DIST = _find_frontend_dist()
+if _DIST:
+    from fastapi.responses import FileResponse, JSONResponse
+    from fastapi.staticfiles import StaticFiles
+
+    _assets_dir = os.path.join(_DIST, "assets")
+    if os.path.isdir(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="assets")
+
+    # SPA 回退：仅当请求未匹配任何 API 路由（404）时返回前端页面。
+    # 用 404 处理器而不是 catch-all 通配路由——通配路由会与 /api/xxx/{id}
+    # 这类带路径参数的路由产生匹配顺序冲突（部分请求被错误拦截 404）。
+    from starlette.exceptions import HTTPException as _StarletteHTTPException
+
+    @app.exception_handler(_StarletteHTTPException)
+    async def _spa_404(request, exc):
+        if exc.status_code == 404 and not request.url.path.startswith("/api"):
+            rel = request.url.path.lstrip("/")
+            f = os.path.join(_DIST, rel)
+            if rel and os.path.isfile(f):
+                return FileResponse(f)
+            return FileResponse(os.path.join(_DIST, "index.html"))
+        return JSONResponse({"detail": getattr(exc, "detail", "Not Found")},
+                            status_code=exc.status_code)
 
 
 # ---------------------------------------------------------------------------
