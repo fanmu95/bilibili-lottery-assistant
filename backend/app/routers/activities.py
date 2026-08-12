@@ -31,6 +31,7 @@ def _ser(a: models.Activity) -> dict:
         "prize_info": a.prize_info,
         "end_time": a.end_time.strftime("%Y-%m-%d %H:%M:%S") if a.end_time else "",
         "status": a.status,
+        "reviewed_at": a.reviewed_at.strftime("%Y-%m-%d %H:%M:%S") if a.reviewed_at else "",
         "comment_text": a.comment_text or "",
         "participated_accounts": _parse_account_ids(a.participated_accounts),
     }
@@ -141,9 +142,14 @@ def activity_stats(db: Session = Depends(get_db)):
         or_(models.Activity.end_time.is_(None),
             models.Activity.end_time > now)).count()
     ended = counts.get("ended", 0) + (counts.get("pending", 0) - pending)
+    # 待复核：两阶段解析第二阶段未跑的活动（后台复核持续消化）
+    unreviewed = db.query(models.Activity).filter(
+        models.Activity.status.in_(["pending", "participated"]),
+        models.Activity.reviewed_at.is_(None)).count()
     return {
         "total": total,
         "pending": pending,
+        "unreviewed": unreviewed,
         "participated": counts.get("participated", 0),
         "skipped": counts.get("skipped", 0),
         "failed": counts.get("failed", 0),
@@ -453,7 +459,6 @@ def participate_triple(db: Session = Depends(get_db)):
     settings_map = {r.key: r.value for r in db.query(models.Setting).all()}
     mode = settings_map.get("participate_text_mode", "custom")
     custom_text = settings_map.get("participate_text", "")
-    gen_time = settings_map.get("participate_text_gen_time", "at_parse")
     llm_cfg = {
         "base_url": settings_map.get("llm_base_url", ""),
         "api_key": settings_map.get("llm_api_key", ""),

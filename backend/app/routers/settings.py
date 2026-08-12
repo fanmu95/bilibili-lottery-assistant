@@ -22,7 +22,6 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 DEFAULT_SETTINGS = {
     # ---- LLM ----
     "llm_enabled": False,
-    "llm_provider": "openai",                # openai / ollama / custom
     "llm_base_url": "https://api.deepseek.com/v1",
     "llm_api_key": "",
     "llm_model": "",
@@ -37,16 +36,16 @@ DEFAULT_SETTINGS = {
     # ---- 参与文案（对齐 bilibinggo participate-text）----
     "participate_text": "关注+转发，支持一下，谢谢！",
     "participate_text_mode": "custom",       # custom / random_comment / llm_generate / random（随机混合）
-    "participate_text_gen_time": "at_parse", # 生成时机：at_parse 解析时预生成（推荐，快5.5x）/ at_participate 参与时
+    # 注：参与文案统一由后台线程预生成评论池（参与时秒取，无需生成时机设置）
     # ---- 扫描与调度 ----
     "scan_interval": 60,                     # 自动扫描间隔（分钟）
+    "auto_scan_enabled": True,               # 活动发现页"自动扫描"开关：按 scan_interval 定时批量扫描
     "scan_llm_verify": False,                # 扫描时是否用 LLM 增强识别
     "watch_backfill_days": 10,               # 监控用户动态回溯天数（对齐 bilibinggo 默认约10天）
-    "max_no_end_days": 7,                    # (预留) 不再用于自动 ended——已结束判定仅依据 end_time 过期或官方 notice（防误杀长周期抽奖）
     "auto_schedule_enabled": False,          # 定时自动参与（对齐 auto/status）
     "auto_schedule_time": "10:00",
+    "review_interval_min": 5,                # 后台复核间隔（分钟，独立于全自动轮次，后端启动常驻自动修正奖品/时间）
     "participate_batch": 3,                  # 单批次参与数量
-    "retry_times": 3,
     "skip_charge_lottery": True,             # 充电抽奖自动跳过（对齐 bilibinggo）
     # ---- 防风控 ----
     "daily_participate_limit": 100,          # 每账号每日参与上限（防被标记）

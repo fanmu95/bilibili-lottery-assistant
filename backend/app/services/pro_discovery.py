@@ -11,6 +11,7 @@ POST 启动后立即返回，前端轮询 GET /api/discover-pro/progress 取结�
 """
 import threading
 import time
+from datetime import datetime
 
 from ..database import SessionLocal
 from .. import models as _models
@@ -23,13 +24,44 @@ SCAN_SLEEP = 1.0         # 每用户扫描间隔（防风控）
 MAX_PAGES = 4            # 每个用户空间翻页数
 SINCE_DAYS = 30          # 回溯天数
 
+# 职业号判定的强抽奖关键词：比通用 LOTTERY_KEYWORDS 更严格——
+# 去掉"福利""送会员"等泛词（营销/广告转发也常带），避免普通营销号被误判为职业号
+PRO_STRONG_KEYWORDS = [
+    "抽奖", "转发抽奖", "转发关注", "关注转发", "转发送", "抽送", "抽一个",
+    "中奖", "评论抽", "留言抽", "点赞抽", "随机抽", "抽三名", "抽两位", "抽三位",
+    "抽5位", "抽3位", "抽2位", "抽10位", "抽一位", "抽一名",
+    "关注+转发", "转发+点赞", "转发+关注", "抽5人", "抽3人", "抽2人",
+]
+
+
+def _strong_lottery(it) -> bool:
+    """职业号判定用：要求含明确抽奖特征（强关键词），排除纯营销/福利泛词。"""
+    t = ((it.get("title") or "") + " " + (it.get("desc") or "")).lower()
+    return any(kw in t for kw in PRO_STRONG_KEYWORDS)
+
+
+def _pick_candidate_activity(db) -> int | None:
+    """选一个待参与且未做过职业号发现的活动（自动模式冷却期用）。
+
+    按 id 降序（最新入库优先），跳过已发现过的，避免重复分析同一活动。
+    """
+    act = (db.query(_models.Activity)
+           .filter(_models.Activity.status == "pending",
+                   _models.Activity.pro_discovered_at.is_(None))
+           .order_by(_models.Activity.id.desc())
+           .first())
+    return act.id if act else None
+
 
 def discover_pro_users(db, activity_id: int,
                        min_ratio: float = PRO_RATIO,
-                       max_users: int = 15) -> dict:
+                       max_users: int = 15,
+                       mark_discovered: bool = True) -> dict:
     """对指定活动执行职业抽奖号发现，自动把判定用户加入监控列表。
 
     返回: {"found": [...], "added": [...], "skipped": [...]}
+    mark_discovered=True（默认）：正常完成后标记活动的 pro_discovered_at，
+    避免反复对同一活动发现（被外部 stop 提前结束时不标记）。
     """
     from .bili_client import cookies_from_json
 
@@ -61,6 +93,9 @@ def discover_pro_users(db, activity_id: int,
     existing_uids = {u.uid for u in db.query(_models.MonitorUser).all()}
 
     for u in users[:max_users]:
+        if _stop_event.is_set():
+            # 被外部请求暂停（如自动模式下一轮开始）：提前结束，不标记完成
+            break
         if u["uid"] in existing_uids:
             skipped.append({"uid": u["uid"], "uname": u["uname"], "reason": "已在监控列表"})
             continue
@@ -70,7 +105,7 @@ def discover_pro_users(db, activity_id: int,
                 max_pages=MAX_PAGES, since_days=SINCE_DAYS,
                 only_lottery=False)
             total = len(items)
-            lottery = sum(1 for it in items if it.get("is_lottery"))
+            lottery = sum(1 for it in items if _strong_lottery(it))
             if total < MIN_SAMPLES:
                 skipped.append({"uid": u["uid"], "uname": u["uname"],
                                 "reason": f"转发样本不足({total}条)"})
@@ -105,6 +140,14 @@ def discover_pro_users(db, activity_id: int,
                             "reason": f"分析失败: {str(e)[:40]}"})
         time.sleep(SCAN_SLEEP)
 
+    # 正常完成（未被暂停）→ 标记活动已做过职业号发现
+    if mark_discovered and not _stop_event.is_set():
+        try:
+            act.pro_discovered_at = datetime.now()
+            db.commit()
+        except Exception:
+            pass
+
     return {"found": found, "added": added, "skipped": skipped,
             "message": f"发现 {len(found)} 个职业抽奖号，新增 {len(added)} 个监控"}
 
@@ -118,19 +161,38 @@ _state = {
     "activity_id": None,
     "message": "未启动",
     "result": None,
+    "paused_by_auto": False,   # 自动模式轮次开始时请求暂停（下个用户前生效）
 }
 _lock = threading.Lock()
+# 停止信号：自动模式新轮次开始置位，职业号发现线程在用户间检查并提前结束
+_stop_event = threading.Event()
 
 
 def start_discovery(activity_id: int) -> tuple[bool, str]:
     """启动异步职业号发现（单任务）"""
+    _stop_event.clear()
     with _lock:
         if _state["running"]:
             return False, "职业号发现已在进行中"
         _state.update(running=True, activity_id=activity_id,
-                      message="准备中...", result=None)
+                      message="准备中...", result=None,
+                      paused_by_auto=False)
     threading.Thread(target=_run, args=(activity_id,), daemon=True).start()
     return True, "已启动职业抽奖号发现（后台分析，可稍后查看结果）"
+
+
+def stop_discovery() -> bool:
+    """请求暂停职业号发现（自动模式轮次开始时调用，避免与参与/扫描同时请求 B 站）。
+
+    线程在下一个用户分析前检查信号提前结束；返回当时是否在运行。
+    """
+    was_running = _state.get("running", False)
+    _stop_event.set()
+    with _lock:
+        if was_running:
+            _state["paused_by_auto"] = True
+            _state["message"] = "已暂停（自动模式轮次进行中）"
+    return was_running
 
 
 def _run(activity_id: int):
@@ -142,8 +204,15 @@ def _run(activity_id: int):
         added = len(result.get("added") or [])
         with _lock:
             _state["result"] = result
-            _state["message"] = result.get("message", "完成")
-        if added:
+            if _stop_event.is_set():
+                _state["message"] = f"已暂停（分析到第 {len(result.get('skipped') or [])} 个用户）"
+                _state["paused_by_auto"] = True
+            else:
+                _state["message"] = result.get("message", "完成")
+        if _stop_event.is_set():
+            add_log(db, "info", "activity",
+                    f"职业号发现已暂停（自动模式轮次开始）")
+        elif added:
             add_log(db, "success", "activity",
                     f"职业号发现完成：{result.get('message')}（"
                     f"发现 {found} 个，新增监控 {added} 个）")
@@ -168,4 +237,5 @@ def get_discovery_progress() -> dict:
         return {"running": _state["running"],
                 "activity_id": _state["activity_id"],
                 "message": _state["message"],
+                "paused_by_auto": _state.get("paused_by_auto", False),
                 "result": _state["result"]}

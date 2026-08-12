@@ -22,6 +22,7 @@ SCAN_SLEEP = 0.6      # 每个用户之间的处理间隔（风控友好）
 LLM_WORKERS = 3       # LLM 批量解析并行线程数（批间并行）
 LLM_BATCH = 5        # 每批 LLM 请求解析的动态条数（思考模式下批次调小，频率翻倍防截断）
 LLM_TIMEOUT = 120     # 单次 LLM 请求超时
+PRO_EMPTY_LIMIT = 3   # 职业号连续扫描无活动次数上限（达到则标记失效，防"伪职业号"长期占用）
 
 
 def _build_client(db) -> bili_client.BiliClient:
@@ -125,6 +126,12 @@ class ScanManager:
                 "model": settings_map.get("llm_model", ""),
                 "system_prompt": settings_map.get("llm_system_prompt", ""),
             }
+            # 合并当前模型的参数覆盖（llm_model_overrides：temperature/top_p/max_tokens）
+            try:
+                llm_cfg.update(llm_client.resolve_model_overrides(
+                    settings_map, llm_cfg.get("model", "")))
+            except Exception:
+                pass
             with self._lock:
                 self.state["llm_enabled"] = use_llm
             if use_llm:
@@ -241,7 +248,10 @@ class ScanManager:
                     try:
                         res = llm_client.parse_lottery_activities_batch(
                             llm_cfg["base_url"], llm_cfg["api_key"], llm_cfg["model"],
-                            batch, batch_size=len(batch))
+                            batch, batch_size=len(batch),
+                            temperature=llm_cfg.get("temperature"),
+                            top_p=llm_cfg.get("top_p"),
+                            max_tokens=llm_cfg.get("max_tokens"))
                     except Exception:
                         res = [None] * len(batch)
                     for j, verdict in enumerate(res):
@@ -562,6 +572,18 @@ def scan_single_user(db, user) -> int:
         ))
         found += 1
     user.last_scanned_at = datetime.now()
+    # 职业号质量复核：连续扫描无抽奖活动 → 计数累加，达到上限标记失效（inactive），
+    # 不再参与扫描——避免加入后动态变化/误判的"伪职业号"长期占用监控资源
+    if user.note and "职业" in user.note and user.status == "active":
+        if found == 0:
+            user.empty_scan_count = (user.empty_scan_count or 0) + 1
+            if user.empty_scan_count >= PRO_EMPTY_LIMIT:
+                user.status = "inactive"
+                add_log(db, "warning", "monitor",
+                        f"职业号 {user.username}（UID {user.uid}）连续 "
+                        f"{user.empty_scan_count} 次扫描无抽奖活动，标记失效")
+        else:
+            user.empty_scan_count = 0
     db.commit()
     add_log(db, "success", "monitor",
             f"扫描 {user.username} 完成，发现 {found} 个抽奖活动")

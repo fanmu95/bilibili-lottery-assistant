@@ -24,7 +24,9 @@ PARSE_LOTTERY_JUDGE = (
     "②有奖品描述（哪怕「惊喜好礼」「周边」「小礼物」「福利」等模糊词也算）；\n"
     "③以随机抽取方式送出（抽/揪/抽送/随机/抽奖等字眼）。\n"
     "以下情况 is_lottery=false：开奖公示/中奖名单展示；试用/体验申请（申请试用/免费体验/领券）；"
-    "抽奖活动汇总/合集专栏；无随机抽取的先到先得福利（打卡/问卷/投票/前N名）；"
+    "抽奖活动汇总/合集/大盘点文章（标题含『合集/汇总/精选』且罗列多个抽奖、多个开奖日期——"
+    "只是收集展示他人抽奖的导航，本身不可参与）；"
+    "无随机抽取的先到先得福利（打卡/问卷/投票/前N名）；"
     "纯广告或普通晒单。\n"
 )
 
@@ -41,13 +43,16 @@ PARSE_FIELDS_GUIDE = (
     "- winner_count: 中奖总人数（数字）。多个档位人数相加"
     "（如「抽2位送A、抽3位送B」→ 5；「一等奖1人、二等奖2人」→ 3）；无法确定则为 0\n"
     "- end_time: 开奖或参与截止时间，输出 YYYY-MM-DD 或 YYYY-MM-DD HH:MM。"
-    "推算规则：①正文有明确日期（含年月日/月日）→ 直接输出该日期，缺年份结合当前日期补全；"
+    "推算规则：①正文有明确开奖/截止/抽奖日期（含年月日/月日）→ 直接输出该日期；"
+    "缺年份一律按**当年**补全（今天是 2026 年，「8月7日」→ 2026-08-07，"
+    "即使该日期已过也按当年，**绝不擅自推断到明年**）；"
     "②正文只有相对时间（如「下周」「本周」「月底」「N天后」「周五」「明晚」等）→ "
     "结合当前日期（含星期几，会在输入末尾提供）推算出具体公历日期，不要留空；"
     "无法精确到具体某天时给出合理推断（如「下周抽」→ 推算为下周某天，取较近的合理日期）；"
     "③正文完全没有提到开奖/截止/抽奖日期 → 空字符串。"
-    "注意：只有「开奖/截止/抽奖/公布」相关时间才算；"
-    "直播开播、新品上线、活动开始、打卡开启等非抽奖节点时间**不要**当作结束时间输出\n"
+    "注意：只有「开奖/截止/抽奖/公布/中奖名单」相关时间才算；"
+    "**开启预约/正式发售/预售/开售/上架/上新/直播开播/活动开始/打卡开启/抽卡池开放**等"
+    "商业或活动节点时间**一律不要**当作结束时间输出\n"
     "- participate_way: 参与方式完整提取（如「转发+关注+评论并@好友」）；没有则空字符串\n"
     "- desc: 完整保留动态原文\n"
     "若 is_lottery 为 false，其余字段留空即可。"
@@ -101,12 +106,21 @@ PARSE_REVIEW_PROMPT = (
     "原文写明了具体时刻（如「下午6点」「18：00」「六点整」）→ 必须带时分（HH:MM）；"
     "原文只有日期没有时刻 → 只输出日期（YYYY-MM-DD），**不要编造或保留 00:00 之外的时刻**；"
     "原文完全没有提到开奖/截止/抽奖时间 → 空字符串"
-    "（直播开播、新品上线、活动开始、打卡开启等不算）；\n"
+    "（**开启预约/正式发售/预售/开售/上架/上新/直播开播/活动开始/打卡开启**等"
+    "商业节点不算）；"
+    "缺年份的日期按**当年**补全（今天是 2026 年，「8月7日」→ 2026-08-07），"
+    "**不要沿用初判的错误年份**——若初判年份在正文中无依据（如初判 2027-08-07 "
+    "但原文只有「8月7日」），必须纠正为当年；\n"
     "②prize：提取原文「送出/抽/揪/赠送/解锁/获得/好礼」等后的奖品，多档合并用「；」分隔；"
     "模糊词（惊喜好礼/周边/小礼物）也原样输出；原文无奖品 → 空字符串；\n"
     "③winner_count：中奖总人数，多档求和（「抽2位送A、抽3位送B」→5）；无法确定 → 0；\n"
     "④title：精炼标题（20字内），去话题标签#XX#和 emoji；\n"
-    "⑤is_lottery：开奖公示/试用申请/汇总专栏/先到先得福利（打卡/问卷/投票）→ false；\n"
+    "⑤is_lottery：**抽奖合集/汇总/导航类文章 → false**——"
+    "标题含『合集/汇总/大盘点/精选』且正文**罗列多个抽奖**"
+    "（『置顶抽奖①/②/③』『开奖日期』多次出现、汇总多个UP主的抽奖）时，"
+    "只是收集展示他人抽奖的导航文章，本身不是可参与的抽奖，"
+    "即使正文含具体抽奖信息也不判 true；"
+    "开奖公示/试用申请/先到先得福利（打卡/问卷/投票）→ false；\n"
     "⑥**正文没有依据的字段必须输出空字符串**，不要保留或猜测初判值；desc 字段无需输出。\n"
     "只输出一个 JSON 数组，与输入一一对应，不要输出任何其他文字：\n"
     '[{"id": "动态id", "is_lottery": true, "title": "活动标题", "prize": "奖品", '
@@ -115,18 +129,24 @@ PARSE_REVIEW_PROMPT = (
 
 
 def review_parse_verdicts_batch(base_url: str, api_key: str, model: str,
-                                items: list, batch_size: int = 5) -> dict:
+                                items: list, batch_size: int = 5,
+                                workers: int = 3,
+                                temperature=None, top_p=None,
+                                max_tokens=None) -> dict:
     """第二阶段复核：对初判结果逐条核查纠错（异步执行）。
 
     items: [{"id": str, "text": 动态原文, "verdict": {初判 dict}}, ...]
     返回: {真实id: 复核后的 verdict dict}（仅含复核明确输出的字段）；
     复核失败（请求异常/JSON 缺失）的条目不包含。
+    批间并行（ThreadPoolExecutor，默认 3 线程，与扫描初判相同策略）——
+    复核 15 条从串行约 1 分钟提速到约 20 秒。
     """
     if not items or not base_url or not model:
         return {}
-    mapped = {}
-    for i in range(0, len(items), batch_size):
-        batch = items[i:i + batch_size]
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _process(batch):
+        """复核单批（批内序号 1..N），返回 LLM 原始 JSON 数组；失败返回 []"""
         lines = []
         for j, it in enumerate(batch, 1):
             v = it.get("verdict") or {}
@@ -140,21 +160,29 @@ def review_parse_verdicts_batch(base_url: str, api_key: str, model: str,
                 base_url, api_key, model,
                 [{"role": "system", "content": PARSE_REVIEW_PROMPT},
                  {"role": "user", "content": "\n\n".join(lines)}],
-                temperature=0.1, max_tokens=16384,
+                temperature=temperature if temperature is not None else 0.1,
+                top_p=top_p if top_p is not None else 1.0,
+                max_tokens=max_tokens,
                 extra_body={"chat_template_kwargs": {"thinking": True}})
             arr = _extract_json_array(reply)
-            if arr:
-                by_idx = {}
-                for x in arr:
-                    if isinstance(x, dict) and x.get("id") is not None:
-                        by_idx[str(x["id"])] = x
-                # 批内序号 1..N 回映射到真实 id
-                for j, it in enumerate(batch, 1):
-                    r = by_idx.get(str(j))
-                    if r:
-                        mapped[it["id"]] = r
+            return arr if arr else []
         except Exception:
-            continue
+            return []
+
+    batches = [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
+    mapped = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(_process, batches))
+    # 各批按批内序号 1..N 回映射到真实 id
+    for batch, arr in zip(batches, results):
+        by_idx = {}
+        for x in arr:
+            if isinstance(x, dict) and x.get("id") is not None:
+                by_idx[str(x["id"])] = x
+        for j, it in enumerate(batch, 1):
+            r = by_idx.get(str(j))
+            if r:
+                mapped[it["id"]] = r
     return mapped
 
 
@@ -169,13 +197,70 @@ def list_models(base_url: str, api_key: str = "") -> list:
     return [{"id": m.get("id", ""), "owned_by": m.get("owned_by", "")} for m in models]
 
 
+# ---- 模型输出上限自动解析 ----
+# 不同服务商/模型支持的最大输出 token 不同；按模型名关键词匹配取上限，
+# 未匹配用保守默认 16384。调用方不传 max_tokens 时自动取上限（"最大化"）。
+MODEL_MAX_TOKENS = [
+    (("deepseek", "sensenova", "v4-flash"), 65536),   # sensenova 系（deepseek-v4-flash 等）
+    (("glm", "chatglm", "zhipu"), 32768),
+    (("moonshot", "kimi"), 32768),
+    (("qwen", "通义"), 8192),
+    (("claude",), 65536),
+    (("gpt-4o", "gpt-4"), 16384),
+    (("gpt-3.5",), 4096),
+]
+DEFAULT_MAX_TOKENS = 16384
+
+
+def resolve_max_tokens(model: str) -> int:
+    """按模型名自动解析最大输出 token（含思考预算，防 content 截断）"""
+    m = (model or "").lower()
+    for keys, v in MODEL_MAX_TOKENS:
+        if any(k in m for k in keys):
+            return v
+    return DEFAULT_MAX_TOKENS
+
+
+def resolve_model_overrides(settings_map: dict, model: str) -> dict:
+    """从 llm_model_overrides 解析当前模型的参数覆盖（temperature/top_p/max_tokens）。
+
+    llm_model_overrides 格式：{"模型名": {"temperature": 0.5, "top_p": 1,
+    "max_tokens": 16384, "system_prompt": "..."}}——前端"模型参数覆盖"编辑；
+    未配置的字段返回空（调用方用场景默认值），max_tokens 覆盖自动解析值。
+    """
+    import json as _json
+    out = {}
+    if not model:
+        return out
+    try:
+        raw = settings_map.get("llm_model_overrides") or "{}"
+        ov = _json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(ov, dict):
+            merged = ov.get(model) or {}
+            for k in ("temperature", "top_p", "max_tokens"):
+                v = merged.get(k)
+                if v is not None:
+                    try:
+                        out[k] = float(v) if k != "max_tokens" else int(float(v))
+                    except (TypeError, ValueError):
+                        pass
+    except Exception:
+        pass
+    return out
+
+
 def chat(base_url: str, api_key: str, model: str, messages: list,
-         temperature: float = 0.7, max_tokens: int = 1024, top_p: float = 1.0,
+         temperature: float = 0.7, max_tokens: int | None = None,
+         top_p: float = 1.0,
          extra_body: dict | None = None) -> str:
     """调用 chat/completions 对话接口（带 429 自动重试）
 
     extra_body: 附加请求体字段（如 sensenova 关闭思考 chat_template_kwargs={"thinking": False}）
+    max_tokens 不传（None）时按模型自动取上限（resolve_max_tokens）——
+    不同模型输出上限不同，无需手动为每个模型调参。
     """
+    if max_tokens is None:
+        max_tokens = resolve_max_tokens(model)
     url = base_url.rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -264,7 +349,7 @@ def parse_lottery_activity(base_url: str, api_key: str, model: str,
         reply = chat(base_url, api_key, model, [
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": user_content},
-        ], temperature=0.1, max_tokens=4096)
+        ], temperature=0.1)
         if not reply:
             return None
         return _extract_json(reply)
@@ -284,7 +369,8 @@ def verify_lottery_with_llm(base_url: str, api_key: str, model: str,
         reply = chat(base_url, api_key, model, [
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": text[:3000]},
-        ], temperature=0.1, max_tokens=4096)
+        ], temperature=temperature if temperature is not None else 0.1,
+        top_p=top_p if top_p is not None else 1.0, max_tokens=max_tokens)
         if not reply:
             return None
         return _extract_json(reply)
@@ -293,7 +379,9 @@ def verify_lottery_with_llm(base_url: str, api_key: str, model: str,
 
 
 def parse_lottery_activities_batch(base_url: str, api_key: str, model: str,
-                                   items: list, batch_size: int = 10) -> list:
+                                   items: list, batch_size: int = 10,
+                                   temperature=None, top_p=None,
+                                   max_tokens=None) -> list:
     """批量解析多条动态：一次请求返回数组，大幅减少请求次数（10 条/次）。
 
     参数：
@@ -308,11 +396,14 @@ def parse_lottery_activities_batch(base_url: str, api_key: str, model: str,
         return []
     results = []
     for i in range(0, len(items), batch_size):
-        results.extend(_parse_batch_once(base_url, api_key, model, items[i:i + batch_size]))
+        results.extend(_parse_batch_once(
+            base_url, api_key, model, items[i:i + batch_size],
+            temperature=temperature, top_p=top_p, max_tokens=max_tokens))
     return results
 
 
-def _parse_batch_once(base_url: str, api_key: str, model: str, batch: list) -> list:
+def _parse_batch_once(base_url: str, api_key: str, model: str, batch: list,
+                       temperature=None, top_p=None, max_tokens=None) -> list:
     """解析单批（<=batch_size 条）动态，返回与该批顺序一致的结果列表
 
     开启思考模式（thinking=True）提升解析准确率；正文完整送入（2000 字），
@@ -353,7 +444,7 @@ def _parse_batch_once(base_url: str, api_key: str, model: str, batch: list) -> l
             reply = chat(base_url, api_key, model, [
                 {"role": "system", "content": PARSE_BATCH_SYSTEM_PROMPT},
                 {"role": "user", "content": user_text},
-            ], temperature=0.1, max_tokens=16384,
+            ], temperature=0.1,
                 extra_body=extra_body)
         except requests.exceptions.HTTPError as e:
             # 4xx（参数不支持等）-> 去掉思考参数重试；5xx 交给 chat() 内重试
@@ -361,7 +452,7 @@ def _parse_batch_once(base_url: str, api_key: str, model: str, batch: list) -> l
                 reply = chat(base_url, api_key, model, [
                     {"role": "system", "content": PARSE_BATCH_SYSTEM_PROMPT},
                     {"role": "user", "content": user_text},
-                ], temperature=0.1, max_tokens=16384)
+                ], temperature=0.1)
             else:
                 raise
         arr = _extract_json_array(reply)

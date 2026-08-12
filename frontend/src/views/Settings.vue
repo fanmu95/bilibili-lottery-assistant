@@ -12,13 +12,6 @@
               <el-form-item label="启用 LLM 识别">
                 <el-switch v-model="form.llm_enabled" active-text="启用" inactive-text="关闭" />
               </el-form-item>
-              <el-form-item label="服务商">
-                <el-radio-group v-model="form.llm_provider">
-                  <el-radio-button value="openai">OpenAI 兼容</el-radio-button>
-                  <el-radio-button value="ollama">本地 Ollama</el-radio-button>
-                  <el-radio-button value="custom">自定义</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
               <el-form-item label="接口地址 (Base URL)">
                 <el-input v-model="form.llm_base_url" placeholder="https://api.deepseek.com/v1">
                   <template #append>以 /v1 结尾</template>
@@ -101,13 +94,6 @@
                 </el-radio-group>
                 <div class="hint" style="margin-left: 8px">随机混合：每次随机从【真实评论 / LLM 贴合评论 / 内置自然文案】中挑一种，避免千篇一律</div>
               </el-form-item>
-              <el-form-item v-if="form.participate_text_mode === 'llm_generate' || form.participate_text_mode === 'random'" label="LLM 生成时机">
-                <el-radio-group v-model="form.participate_text_gen_time">
-                  <el-radio value="at_parse">扫描解析时批量预生成（推荐）</el-radio>
-                  <el-radio value="at_participate">参与时逐个生成</el-radio>
-                </el-radio-group>
-                <div class="hint" style="margin-left: 8px">实测：批量预生成比参与时快约 5.5 倍，贴合度相当</div>
-              </el-form-item>
               <el-form-item v-if="form.participate_text_mode === 'custom'" label="参与文案">
                 <el-input v-model="form.participate_text" type="textarea" :rows="2"
                   placeholder="自定义模式下转发/评论时使用的内容" />
@@ -123,9 +109,6 @@
               </el-form-item>
               <el-form-item label="单批次参与数量">
                 <el-input-number v-model="form.participate_batch" :min="1" :max="10" />
-              </el-form-item>
-              <el-form-item label="失败重试次数">
-                <el-input-number v-model="form.retry_times" :min="0" :max="10" />
               </el-form-item>
               <el-form-item label="充电抽奖自动跳过">
                 <el-switch v-model="form.skip_charge_lottery" />
@@ -322,7 +305,6 @@ function resetModelOverride() {
 async function save() {
   const payload = {
     llm_enabled: form.llm_enabled,
-    llm_provider: form.llm_provider,
     llm_base_url: form.llm_base_url,
     llm_api_key: form.llm_api_key,
     llm_model: form.llm_model,
@@ -335,9 +317,7 @@ async function save() {
     watch_backfill_days: form.watch_backfill_days,
     participate_text: form.participate_text,
     participate_text_mode: form.participate_text_mode,
-    participate_text_gen_time: form.participate_text_gen_time || 'at_parse',
     participate_batch: form.participate_batch,
-    retry_times: form.retry_times,
     skip_charge_lottery: form.skip_charge_lottery,
     daily_participate_limit: form.daily_participate_limit,
     action_interval_min: form.action_interval_min,

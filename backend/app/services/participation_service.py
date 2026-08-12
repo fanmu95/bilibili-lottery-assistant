@@ -216,7 +216,6 @@ def _run(activity_id: int, account_id: int):
         settings_map = {r.key: r.value for r in db.query(models.Setting).all()}
         mode = settings_map.get("participate_text_mode", "custom")
         custom_text = settings_map.get("participate_text", "")
-        gen_time = settings_map.get("participate_text_gen_time", "at_parse")
         llm_cfg = {
             "base_url": settings_map.get("llm_base_url", ""),
             "api_key": settings_map.get("llm_api_key", ""),

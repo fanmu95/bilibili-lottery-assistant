@@ -21,21 +21,31 @@ REPLY_SKIP_HEAD = 5          # 跳过前 5 条（热评/广告）
 REPLY_POOL_END_EXCLUSIVE = 65
 MAX_TEXT_LEN = 100
 
+# B 站评论自带表情代码（文本代码，B 站会渲染成表情图；比 emoji 更贴地气）
+# 只收录评论语境通用、确定有效的代码；供 LLM 提示词参考与文案池使用。
+BILI_EMOJI_CODES = [
+    "[doge]", "[妙啊]", "[捂脸]", "[笑哭]", "[星星眼]", "[打call]",
+    "[鼓掌]", "[害羞]", "[惊喜]", "[喜欢]", "[思考]", "[惊讶]",
+    "[委屈]", "[亲亲]", "[吃瓜]", "[酸了]", "[灵光一现]", "[奋斗]",
+    "[OK]", "[歪嘴笑]", "[抱拳]", "[再见]", "[无语]", "[哦豁]",
+]
+
 # 内置兜底文案池：真人随手会打的自然评论（少 emoji、无机器人口号），
 # 供 random 模式/兜底使用，避免「关注+转发，支持一下，谢谢！」式生硬文案。
+# 部分条目带 B 站表情代码（[doge] 等），更拟人；每条最多 1 个。
 FALLBACK_COMMENT_POOL = [
     "蹲一个，这个看起来真不错",
-    "哇这个可以啊，支持一下",
+    "哇这个可以啊，支持一下 [打call]",
     "质感看着挺好的，关注了",
-    "这波福利诚意满满，冲",
+    "这波福利诚意满满，冲 [doge]",
     "来了来了，支持一波",
-    "看着有点心动，先留个脚印",
+    "看着有点心动，先留个脚印 [星星眼]",
     "正好最近想入手，蹲一个",
-    "颜值在线，属实是爱了",
+    "颜值在线，属实是爱了 [喜欢]",
     "路过支持一下，祝活动顺利",
     "这个真不错，先关注了",
-    "好家伙，这福利可以的",
-    "围观群众路过，支持",
+    "好家伙，这福利可以的 [妙啊]",
+    "围观群众路过，支持 [吃瓜]",
     "质量看着不错，支持一下",
     "好东西要分享，转给朋友看看",
     "最近正缺这个，来碰碰运气",
@@ -44,10 +54,50 @@ FALLBACK_COMMENT_POOL = [
     "感觉挺用心的，支持",
     "不错不错，观望一下",
     "看着挺香的，蹲个结果",
-    "这波操作可以，点赞",
+    "这波操作可以，点赞 [OK]",
     "来得早不如来得巧，支持",
-    "心动了，蹲一个",
+    "心动了，蹲一个 [doge]",
     "支持支持，等后续",
+    # ---- 极短评（B 站抽奖评论真实风格，与上面长评混合更拟人）----
+    "好运连连",
+    "抽我",
+    "好运",
+    "蹲",
+    "冲",
+    "羡慕了",
+    "想要",
+    "排一个",
+    "带带我",
+    "沾沾喜气",
+    "锦鲤附体",
+    "好运加持",
+    "试试手气",
+    "随缘",
+    "前排占座",
+    "凑个热闹",
+    "666",
+    "爱了爱了",
+    # ---- 第二批极短评（扩充短评占比，混合更自然）----
+    "欧皇保佑",
+    "抽中我",
+    "选我选我",
+    "就决定是我了",
+    "蹭蹭欧气",
+    "坐等欧气",
+    "好运常伴",
+    "冲鸭",
+    "占楼",
+    "蹲住",
+    "码住",
+    "碰碰运气",
+    "来一个",
+    "眼馋",
+    "馋了",
+    "沾光",
+    "借点欧气",
+    "祈福",
+    "想中一次",
+    "试试看",
 ]
 
 
@@ -61,12 +111,15 @@ def pick_fallback_comment() -> str:
 # 思考过长会占满 max_tokens 导致 content 截断——要求"直接输出，不要思考过程"。
 LLM_COMMENT_PROMPT = (
     "你是哔哩哔哩普通用户，正在刷到一条抽奖/福利动态，随手留条评论。"
-    "直接输出一条 8~25 字的评论，不要输出任何思考过程、解释或前缀。要求：\n"
+    "直接输出一条 3~25 字的评论，不要输出任何思考过程、解释或前缀。"
+    "**长短要随机**：偶尔像真人随手打的极短评（2~6 字，如『好运』『抽我』『蹲』『冲』『羡慕了』），"
+    "偶尔正常一句话（8~25 字），不要总是同一种长度。要求：\n"
     "①要贴合这条动态——提到奖品、作品/游戏名、角色、话题等具体信息，"
     "让人觉得你真看过内容，不是复制粘贴；\n"
     "②像真人随手打的：口语化、随意，可以有语气词、网络梗，甚至带点调侃；\n"
-    "③不要堆表情：最多用一个常见表情（😂😆👍🥰🔥 等），能不用就不用，"
-    "绝不要用「🎉✨🎁💖🥳」这类活动/庆祝型表情，真人不会那么发；\n"
+    "③表情自然：最多用 1 个 B 站表情代码（如 [doge] [妙啊] [星星眼] [打call] [鼓掌]，"
+    "B 站会渲染成表情图，比 emoji 更贴地气），能不用就不用；"
+    "绝不要用「🎉✨🎁💖🥳」这类活动/庆祝型 emoji，真人不会那么发；\n"
     "④千万不要说「已转发关注三连」「希望能中奖」「坐等开奖」「求好运」"
     "「祝自己」这类机器人口号，也不要说「我真的很想要」这种客套话；\n"
     "⑤只输出评论本身，不要引号。"
@@ -214,7 +267,8 @@ def generate_llm_comment(llm_cfg: dict, activity_text: str) -> str | None:
                 {"role": "system", "content": LLM_COMMENT_PROMPT},
                 {"role": "user", "content": f"活动正文：\n{(activity_text or '')[:800]}"},
             ],
-            temperature=0.9, max_tokens=16384,
+            temperature=float(llm_cfg.get("temperature", 0.9)),
+            top_p=float(llm_cfg.get("top_p", 1.0)), max_tokens=llm_cfg.get("max_tokens"),
             extra_body={"chat_template_kwargs": {"thinking": False}})
         text = (reply or "").strip().strip('"\'「」')
         return text[:MAX_TEXT_LEN] if text else None
@@ -227,7 +281,8 @@ def generate_llm_comment(llm_cfg: dict, activity_text: str) -> str | None:
                     {"role": "system", "content": LLM_COMMENT_PROMPT},
                     {"role": "user", "content": f"活动正文：\n{(activity_text or '')[:800]}"},
                 ],
-                temperature=0.9, max_tokens=16384)
+                temperature=float(llm_cfg.get("temperature", 0.9)),
+                top_p=float(llm_cfg.get("top_p", 1.0)), max_tokens=llm_cfg.get("max_tokens"))
             text = (reply or "").strip().strip('"\'「」')
             return text[:MAX_TEXT_LEN] if text else None
         except Exception:
@@ -236,12 +291,15 @@ def generate_llm_comment(llm_cfg: dict, activity_text: str) -> str | None:
 
 BATCH_COMMENT_PROMPT = (
     "你是哔哩哔哩普通用户，正在刷到多条抽奖/福利动态，随手留评论。"
-    "直接输出 JSON，不要输出任何思考过程、解释或前缀。对每条动态写一条 8~25 字的评论。要求：\n"
+    "直接输出 JSON，不要输出任何思考过程、解释或前缀。对每条动态写一条 3~25 字的评论。"
+    "**长短要随机**：偶尔是极短评（2~6 字，如『好运』『抽我』『蹲』『冲』『羡慕了』），"
+    "偶尔是正常一句话（8~25 字），不要总同一种长度。要求：\n"
     "①贴合该条动态——提到奖品、作品/游戏名、角色、话题等具体信息，"
     "让人觉得你真看过内容；\n"
     "②像真人随手打的：口语化、随意，可以有语气词、网络梗，甚至带点调侃；\n"
-    "③不要堆表情：最多用一个常见表情（😂😆👍🥰🔥 等），能不用就不用，"
-    "绝不要用「🎉✨🎁💖🥳」这类活动/庆祝型表情；\n"
+    "③表情自然：最多用 1 个 B 站表情代码（如 [doge] [妙啊] [星星眼] [打call] [鼓掌]，"
+    "B 站会渲染成表情图，比 emoji 更贴地气），能不用就不用；"
+    "绝不要用「🎉✨🎁💖🥳」这类活动/庆祝型 emoji；\n"
     "④千万不要说「已转发关注三连」「希望能中奖」「坐等开奖」「求好运」"
     "这类机器人口号，不要客套话；\n"
     "⑤每条只输出评论本身，不要引号。\n"
@@ -270,7 +328,8 @@ def generate_llm_comments_batch(llm_cfg: dict, items: list, batch_size: int = 10
                     {"role": "system", "content": BATCH_COMMENT_PROMPT},
                     {"role": "user", "content": "\n\n".join(lines)},
                 ],
-                temperature=0.9, max_tokens=16384,
+                temperature=float(llm_cfg.get("temperature", 0.9)),
+            top_p=float(llm_cfg.get("top_p", 1.0)), max_tokens=llm_cfg.get("max_tokens"),
                 extra_body={"chat_template_kwargs": {"thinking": False}})
             arr = llm_client._extract_json_array(reply or "")
             if arr:
@@ -291,8 +350,9 @@ POOL_COMMENTS_PROMPT = (
     "要求：\n"
     "1. 每条评论都要贴合对应动态的内容（奖品、主题、UP主），口语化、真诚\n"
     "2. 简短（不超过 40 字）\n"
-    "3. 不要堆表情：最多用一个常见表情（😂😆👍🥰🔥 等），能不用就不用，"
-    "绝不要用「🎉✨🎁💖🥳」这类活动/庆祝型表情\n"
+    "3. 表情自然：最多用 1 个 B 站表情代码（如 [doge] [妙啊] [星星眼] [打call] [鼓掌]，"
+    "B 站会渲染成表情图，比 emoji 更贴地气），能不用就不用；"
+    "绝不要用「🎉✨🎁💖🥳」这类活动/庆祝型 emoji\n"
     "4. 同一动态的 {count} 条评论必须各不相同（语气/角度有差异，像不同账号发的）\n"
     "5. 不要提\"抽奖\"\"中奖\"\"转发抽\"等字眼，像真实粉丝留言\n"
     "只输出 JSON 数组，格式：\n"
@@ -321,7 +381,8 @@ def generate_comment_pools_batch(llm_cfg: dict, items: list, count: int,
                     llm_cfg["base_url"], llm_cfg.get("api_key", ""), llm_cfg["model"],
                     [{"role": "system", "content": prompt},
                      {"role": "user", "content": "\n\n".join(lines)}],
-                    temperature=0.9, max_tokens=16384,
+                    temperature=float(llm_cfg.get("temperature", 0.9)),
+            top_p=float(llm_cfg.get("top_p", 1.0)), max_tokens=llm_cfg.get("max_tokens"),
                     extra_body={"chat_template_kwargs": {"thinking": False}})
                 arr = llm_client._extract_json_array(reply or "")
                 if arr:
@@ -399,7 +460,9 @@ def generate_comments_for_activity(llm_cfg: dict, activity_text: str,
     prompt = (
         "你是哔哩哔哩普通用户，正在刷到一条抽奖/福利动态，随手留评论。"
         f"直接输出 JSON，不要输出任何思考过程、解释或前缀。"
-        f"为这条动态写 {count} 条**内容各不相同**的评论，每条 8~25 字。要求：\n"
+        f"为这条动态写 {count} 条**内容各不相同**的评论，每条 3~25 字。"
+        f"**长短要随机**：偶尔极短评（2~6 字，如『好运』『抽我』『蹲』『冲』『羡慕了』），"
+        f"偶尔正常一句话（8~25 字），不要总同一种长度。要求：\n"
         "①贴合这条动态——提到奖品、作品/游戏名、角色、话题等具体信息，"
         "让人觉得你真看过内容；\n"
         "②像真人随手打的：口语化、随意，可以有语气词、网络梗，甚至带点调侃；\n"
@@ -417,7 +480,8 @@ def generate_comments_for_activity(llm_cfg: dict, activity_text: str,
                 {"role": "system", "content": prompt},
                 {"role": "user", "content": f"活动正文：\n{(activity_text or '')[:800]}"},
             ],
-            temperature=0.9, max_tokens=16384,
+            temperature=float(llm_cfg.get("temperature", 0.9)),
+            top_p=float(llm_cfg.get("top_p", 1.0)), max_tokens=llm_cfg.get("max_tokens"),
             extra_body={"chat_template_kwargs": {"thinking": False}})
         arr = llm_client._extract_json_array(reply or "")
         if not arr and reply:
@@ -458,6 +522,13 @@ def ensure_next_comments(db) -> int:
             "api_key": settings_map.get("llm_api_key", ""),
             "model": settings_map.get("llm_model", ""),
         }
+        # 合并当前模型的参数覆盖（llm_model_overrides：temperature/top_p/max_tokens）
+        try:
+            from . import llm_client as _lc
+            llm_cfg.update(_lc.resolve_model_overrides(
+                settings_map, llm_cfg.get("model", "")))
+        except Exception:
+            pass
         if not llm_cfg.get("base_url") or not llm_cfg.get("model"):
             return 0
         # 找队列中下一个待执行活动
@@ -521,6 +592,13 @@ def ensure_comment_buffer(db) -> int:
             "api_key": settings_map.get("llm_api_key", ""),
             "model": settings_map.get("llm_model", ""),
         }
+        # 合并当前模型的参数覆盖（llm_model_overrides：temperature/top_p/max_tokens）
+        try:
+            from . import llm_client as _lc
+            llm_cfg.update(_lc.resolve_model_overrides(
+                settings_map, llm_cfg.get("model", "")))
+        except Exception:
+            pass
         if not llm_cfg.get("base_url") or not llm_cfg.get("model"):
             return 0
         now = datetime.now()
@@ -587,6 +665,13 @@ def _ensure_comment_pools_locked(db, limit: int = 8, newest_first: bool = False)
             "api_key": settings_map.get("llm_api_key", ""),
             "model": settings_map.get("llm_model", ""),
         }
+        # 合并当前模型的参数覆盖（llm_model_overrides：temperature/top_p/max_tokens）
+        try:
+            from . import llm_client as _lc
+            llm_cfg.update(_lc.resolve_model_overrides(
+                settings_map, llm_cfg.get("model", "")))
+        except Exception:
+            pass
         if not llm_cfg.get("base_url") or not llm_cfg.get("model"):
             return 0
         active_ids = [a.id for a in db.query(models.Account)
@@ -634,6 +719,14 @@ def _ensure_comment_pools_locked(db, limit: int = 8, newest_first: bool = False)
         for a in need:
             pool = generated.get(str(a.id))
             if pool:
+                if mode == "random":
+                    # random 混合模式：池里掺入内置兜底短评（最后一条换成兜底），
+                    # 避免预生成池全为 LLM 评论导致"真实/LLM/兜底"混合失效；
+                    # 参与时按账号从池取，天然混出不同来源的评论
+                    pool = list(pool)
+                    if len(pool) > 1:
+                        pool[-1] = pick_fallback_comment()
+                        random.shuffle(pool)
                 a.comment_text = _json.dumps(pool, ensure_ascii=False)
                 cnt += 1
         if cnt:

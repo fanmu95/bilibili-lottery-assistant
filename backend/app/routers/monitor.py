@@ -27,7 +27,9 @@ def _ser(u: models.MonitorUser) -> dict:
         "username": u.username,
         "avatar": bili_client.normalize_avatar(u.avatar),
         "monitor_type": u.monitor_type,
+        "status": u.status,
         "note": u.note or "",
+        "empty_scan_count": u.empty_scan_count or 0,
         "last_scanned_at": u.last_scanned_at.strftime("%Y-%m-%d %H:%M:%S") if u.last_scanned_at else "",
     }
 

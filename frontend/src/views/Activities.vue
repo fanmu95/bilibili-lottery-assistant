@@ -1,12 +1,13 @@
 <template>
   <div class="page">
     <!-- 统计 -->
-    <el-row :gutter="16">
-      <el-col :span="6"><el-card shadow="never"><el-statistic title="活动总数" :value="stats.total" /></el-card></el-col>
-      <el-col :span="6"><el-card shadow="never"><el-statistic title="待参与" :value="stats.pending"><template #suffix><el-tag size="small" type="warning" effect="plain">可参与</el-tag></template></el-statistic></el-card></el-col>
-      <el-col :span="6"><el-card shadow="never"><el-statistic title="已参与" :value="stats.participated" /></el-card></el-col>
-      <el-col :span="6"><el-card shadow="never"><el-statistic title="已结束" :value="stats.ended"><template #suffix><el-tag size="small" type="info" effect="plain">已截止</el-tag></template></el-statistic></el-card></el-col>
-    </el-row>
+    <div class="stat-row">
+      <el-card shadow="never" class="stat-card"><el-statistic title="活动总数" :value="stats.total" /></el-card>
+      <el-card shadow="never" class="stat-card"><el-statistic title="待参与" :value="stats.pending"><template #suffix><el-tag size="small" type="warning" effect="plain">可参与</el-tag></template></el-statistic></el-card>
+      <el-card shadow="never" class="stat-card"><el-statistic title="已参与" :value="stats.participated" /></el-card>
+      <el-card shadow="never" class="stat-card"><el-statistic title="已结束" :value="stats.ended"><template #suffix><el-tag size="small" type="info" effect="plain">已截止</el-tag></template></el-statistic></el-card>
+      <el-card shadow="never" class="stat-card"><el-statistic title="待复核" :value="stats.unreviewed" /></el-card>
+    </div>
 
     <!-- 全自动模式（扫描+参与循环） -->
     <el-card shadow="never" class="mt">
@@ -21,7 +22,7 @@
             定时 {{ autoState.schedule_time || '10:00' }} 自动启动
           </el-tag>
           <span v-if="autoState.running" class="dim auto-msg">
-            （第 {{ autoState.round }} 轮 · 已参与 {{ autoState.participated }} 个 · 待参与 {{ autoState.pending_count }} 个<template v-if="autoState.scanned_user"> · 最近扫描 {{ autoState.scanned_user }}</template>）
+            （第 {{ autoState.round }} 轮 · 已参与 {{ autoState.participated }} 个 · 待参与 {{ autoState.pending_count }} 个<template v-if="autoState.scanned_user"> · 最近扫描 {{ autoState.scanned_user }}</template><template v-if="nextRoundText"> · 下一轮 {{ autoState.next_round_at }} 开始（剩余 {{ nextRoundText }}）</template>）
           </span>
         </div>
         <div class="auto-actions">
@@ -32,22 +33,6 @@
           <el-button :icon="Refresh" @click="refreshAll">刷新状态</el-button>
         </div>
       </div>
-      <!-- 全自动进度步骤（循环：检查->扫描->参与） -->
-      <el-steps v-if="autoState.running" :active="autoStep" finish-status="success" class="auto-steps">
-        <el-step title="检查活动">
-          <template #description>待参与 {{ autoState.pending_count }} 个<template v-if="autoState.pending_count < 10">（不足 10，将扫描）</template></template>
-        </el-step>
-        <el-step title="扫描用户">
-          <template #description>
-            <template v-if="autoState.scanned_user">扫描 {{ autoState.scanned_user }}...</template>
-            <template v-else>活动充足或冷却中，跳过扫描</template>
-          </template>
-        </el-step>
-        <el-step title="自动参与">
-          <template #description>已参与 {{ autoState.participated }} 个</template>
-        </el-step>
-      </el-steps>
-
       <!-- 全自动详细动作展示（当前动作 + 动作日志） -->
       <div v-if="autoState.running" class="auto-detail">
         <div class="auto-current" v-if="autoState.current_action">
@@ -57,6 +42,21 @@
         <div v-if="autoState.current_activity" class="auto-activity dim">
           当前活动：{{ autoState.current_activity }}
           <template v-if="autoState.current_account"> · 账号：{{ autoState.current_account }}</template>
+        </div>
+        <!-- 职业号发现状态（自动模式冷却期运行、轮次开始暂停） -->
+        <div v-if="proState.running" class="auto-pro">
+          <el-tag size="small" type="warning" effect="dark">
+            <el-icon class="is-loading" style="margin-right:4px"><Loading /></el-icon>职业号发现中
+          </el-tag>
+          <span class="dim">活动 {{ proState.activity_id }} · {{ proState.message || '分析评论区用户中...' }}</span>
+        </div>
+        <div v-else-if="proState.paused_by_auto && autoState.running" class="auto-pro">
+          <el-tag size="small" type="info" effect="plain">职业号发现：已暂停</el-tag>
+          <span class="dim">轮次进行中，冷却期恢复</span>
+        </div>
+        <div v-else-if="proState.result" class="auto-pro">
+          <el-tag size="small" type="success" effect="plain">职业号发现完成</el-tag>
+          <span class="dim">{{ proState.message || '' }}</span>
         </div>
         <el-scrollbar ref="autoLogScrollRef" v-if="autoState.action_log && autoState.action_log.length" max-height="170px" class="auto-log-scroll">
           <div class="auto-log">
@@ -119,18 +119,18 @@
         <el-table-column label="奖品" min-width="180">
           <template #default="{ row }">
             <el-tooltip v-if="row.prize_info" :content="row.prize_info" placement="top" :show-after="300">
-              <span class="prize-multi">{{ row.prize_info }}</span>
+              <span class="prize-multi" :class="reviewClass(row)">{{ row.prize_info }}</span>
             </el-tooltip>
             <span v-else class="dim">—</span>
           </template>
         </el-table-column>
         <el-table-column label="结束时间" width="145">
           <template #default="{ row }">
-            <span v-if="row.end_time" :class="{ expired: isExpired(row) }">{{ fmtEndTime(row.end_time) }}</span>
+            <span v-if="row.end_time" :class="[reviewClass(row), { expired: isExpired(row) }]">{{ fmtEndTime(row.end_time) }}</span>
             <el-tag v-else size="small" type="info">未定</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="参与文案" min-width="200">
+        <el-table-column label="参与文案" min-width="120">
           <template #default="{ row }">
             <el-tooltip v-if="row.comment_text" :content="row.comment_text" placement="top" :show-after="300">
               <span class="comment-cell">{{ row.comment_text }}</span>
@@ -165,7 +165,7 @@
             <el-tag :type="statusMap[row.status]?.type || 'info'" size="small">{{ statusMap[row.status]?.label || row.status }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="320" fixed="right">
+        <el-table-column label="操作" width="360" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <el-button size="small" type="primary" plain :icon="Link" @click="openLink(row)">跳转</el-button>
@@ -272,7 +272,7 @@ const statusOptions = [
 ]
 const sourceLabel = (t) => t === 'repost' ? '转发' : t === 'publish' ? '发布' : '手动'
 
-const stats = ref({ total: 0, pending: 0, participated: 0, skipped: 0, ended: 0 })
+const stats = ref({ total: 0, pending: 0, participated: 0, skipped: 0, ended: 0, unreviewed: 0 })
 const activities = ref([])
 const accounts = ref([])
 const loading = ref(false)
@@ -289,8 +289,31 @@ const autoState = ref({
   scanned_user: '', pending_count: 0, started_at: null, phase: 0,
   current_action: '', current_activity: '', current_account: '', action_log: [],
   scheduled: false, schedule_time: '',
+  next_round_at: '', next_round_in: null,
+  pro_discovery: { running: false, message: '', activity_id: null, paused_by_auto: false, result: null },
 })
+// 职业号发现状态（自动模式冷却期运行、轮次开始暂停）
+const proState = computed(() => autoState.value.pro_discovery || {})
 let autoTimer = null
+// 下一轮倒计时（本地每秒递减，轮询 3s 时校正）
+const nextRoundText = ref('')
+let countdownTimer = null
+function fmtCountdown(sec) {
+  if (sec === null || sec === undefined || sec <= 0) return ''
+  const m = Math.floor(sec / 60), s = sec % 60
+  return `${m}分${String(s).padStart(2, '0')}秒`
+}
+function stopCountdown() { if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null } }
+function syncCountdown(remainSec) {
+  stopCountdown()
+  if (remainSec === null || remainSec === undefined || remainSec <= 0) { nextRoundText.value = ''; return }
+  nextRoundText.value = fmtCountdown(remainSec)
+  countdownTimer = setInterval(() => {
+    remainSec -= 1
+    if (remainSec <= 0) { nextRoundText.value = ''; stopCountdown(); return }
+    nextRoundText.value = fmtCountdown(remainSec)
+  }, 1000)
+}
 // 动作日志类型 -> 图标（格式化美观展示）
 function logIcon(type) {
   return { scan: '🔍', llm: '🤖', action: '🔄', success: '✅', error: '❌', start: '🚀', info: '•' }[type] || '•'
@@ -308,12 +331,6 @@ watch(() => autoState.value.action_log?.length, async () => {
   if (sb && sb.wrapRef) sb.wrapRef.scrollTop = sb.wrapRef.scrollHeight
 })
 // 全自动步骤高亮：0 检查 / 1 扫描中 / 2 参与中
-const autoStep = computed(() => {
-  const p = autoState.value.phase || 0
-  if (p === 1) return 1
-  if (p === 2) return 2
-  return autoState.value.running ? 0 : 0
-})
 async function startAuto() {
   const res = await autoApi.start()
   if (res.ok) ElMessage.success(res.message || '全自动模式已启动')
@@ -329,6 +346,7 @@ async function pollAuto() {
   autoTimer = setInterval(async () => {
     try {
       autoState.value = await autoApi.progress()
+      syncCountdown(autoState.value.next_round_in)
       // 运行中实时刷新活动列表/统计（参与/扫描结果立刻可见）
       load(); loadStats()
       if (!autoState.value.running) {
@@ -359,6 +377,10 @@ function unparticipatedAccounts(row) {
 }
 function isExpired(row) {
   return !!row.end_time && new Date(row.end_time.replace(/-/g, '/')) < new Date()
+}
+// 复核状态着色：已复核绿色、未复核红色（后端 reviewed_at 非空=已复核）
+function reviewClass(row) {
+  return row.reviewed_at ? 'rev-done' : 'rev-pending'
 }
 // 结束时间显示：去掉秒（B 站官方 lottery_time 精确到秒，展示到分钟即可，避免"假精确"）
 function fmtEndTime(t) {
@@ -591,16 +613,17 @@ onMounted(() => {
   }).catch(() => {})
   startListPolling()
 })
-onUnmounted(() => { stopAutoPolling(); stopPartPolling(); stopProPoll(); stopListPolling() })
+onUnmounted(() => { stopAutoPolling(); stopCountdown(); stopPartPolling(); stopProPoll(); stopListPolling() })
 </script>
 
 <style scoped>
 .mt { margin-top: 16px; }
+.stat-row { display: flex; gap: 16px; margin-bottom: 16px; }
+.stat-card { flex: 1; min-width: 0; }
 .auto-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .auto-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .auto-msg { font-size: 12px; }
 .auto-actions { display: flex; gap: 8px; }
-.auto-steps { margin-top: 14px; }
 .auto-detail { margin-top: 14px; padding: 10px 12px; background: var(--el-fill-color-light); border-radius: 8px; }
 .auto-current { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
 .auto-current-icon { flex-shrink: 0; }
@@ -612,6 +635,7 @@ onUnmounted(() => { stopAutoPolling(); stopPartPolling(); stopProPoll(); stopLis
 .cur-error { color: #f56c6c; }
 .cur-start { color: #e6a23c; }
 .auto-activity { font-size: 12px; margin-top: 4px; }
+.auto-pro { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-top: 6px; flex-wrap: wrap; }
 .auto-log-scroll { margin-top: 8px; }
 .auto-log-item { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 6px; line-height: 1.5; border-radius: 4px; }
 .auto-log-item:hover { background: var(--el-fill-color-light); }
@@ -677,6 +701,9 @@ onUnmounted(() => { stopAutoPolling(); stopPartPolling(); stopProPoll(); stopLis
   color: var(--el-text-color-regular);
 }
 .expired { color: var(--el-color-danger); }
+/* 复核状态着色：已复核亮白强调、未复核暗灰（标题/结束时间/奖品） */
+.rev-done { color: #ffffff !important; font-weight: 600; }
+.rev-pending { color: #909399 !important; }
 .detail-desc { max-height: 120px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; }
 .mr4 { margin-right: 4px; }
 .ops { display: flex; align-items: center; gap: 4px; white-space: nowrap; }

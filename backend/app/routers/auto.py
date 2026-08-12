@@ -6,10 +6,12 @@
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from ..database import get_db
 from .logs import add_log
 from ..services.auto_service import auto_manager
+from .. import models
 
 router = APIRouter(prefix="/api/auto", tags=["auto"])
 
@@ -31,5 +33,24 @@ def auto_stop(db: Session = Depends(get_db)):
 
 
 @router.get("/progress")
-def auto_progress():
-    return auto_manager.progress
+def auto_progress(db: Session = Depends(get_db)):
+    d = dict(auto_manager.progress)
+    # 实时计算待参与数：自动扫描（定时/手动/单用户）入库后立即反映，
+    # 不依赖主循环每轮开头的快照（轮次间隔可能很长）
+    try:
+        now = datetime.now()
+        d["pending_count"] = db.query(models.Activity).filter(
+            models.Activity.status == "pending",
+            (models.Activity.end_time.is_(None))
+            | (models.Activity.end_time > now),
+        ).count()
+    except Exception:
+        pass
+    # 附加职业号发现状态（自动模式冷却期运行、轮次开始暂停）
+    try:
+        from ..services.pro_discovery import get_discovery_progress
+        d["pro_discovery"] = get_discovery_progress()
+    except Exception:
+        d["pro_discovery"] = {"running": False, "message": "", "activity_id": None,
+                              "paused_by_auto": False, "result": None}
+    return d

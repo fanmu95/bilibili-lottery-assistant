@@ -118,6 +118,39 @@ def on_startup():
     seed_default_settings()
     db = SessionLocal()
     try:
+        # 启动时补齐新增列（SQLite ALTER TABLE，列不存在才加）
+        try:
+            from sqlalchemy import text
+            _new_cols = {
+                "activities": [("pro_discovered_at", "DATETIME")],
+                "monitor_users": [("empty_scan_count", "INTEGER")],
+            }
+            for _tbl, _cols in _new_cols.items():
+                _cols_exist = {r[1] for r in db.execute(
+                    text(f"PRAGMA table_info({_tbl})")).fetchall()}
+                for _cname, _ctype in _cols:
+                    if _cname not in _cols_exist:
+                        db.execute(text(
+                            f"ALTER TABLE {_tbl} ADD COLUMN {_cname} {_ctype}"))
+                        db.commit()
+                        logs.add_log(db, "info", "system",
+                                     f"数据库补列：{_tbl}.{_cname}")
+        except Exception:
+            pass
+        # 启动时应用 B 站全局限流速率（bili_rps 设置；设置保存时也会热更新）
+        try:
+            from .services.rate_limit import configure_rate_limit
+            from .services import settings as _s
+            _rps = None
+            row = db.query(models.Setting).filter_by(key="bili_rps").first()
+            if row:
+                try:
+                    _rps = float(row.value)
+                except (TypeError, ValueError):
+                    _rps = None
+            configure_rate_limit(_rps)
+        except Exception:
+            pass
         # 启动时清理：已过期的 pending/participated 活动标记 ended（防止统计口径不一致）
         from datetime import datetime as _dt
         _now = _dt.now()

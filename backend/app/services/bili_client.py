@@ -357,6 +357,18 @@ class BiliClient:
                         return []          # 风控/未登录 -> 无真实数据
                 data = d.get("data", {})
                 items = data.get("items", [])
+                # 匿名接口偶发"空返回"（code=0 但 items 空，非风控码，B 站抖动）：
+                # 用登录 session 重试一次，避免把用户动态误判为"无数据"
+                if not items and self.session is not self.pub_session:
+                    try:
+                        r = self.session.get(
+                            f"{BASE}/x/polymer/web-dynamic/v1/feed/space",
+                            params=feed_params, timeout=10)
+                        d = r.json()
+                        data = d.get("data", {})
+                        items = data.get("items", [])
+                    except Exception:
+                        items = []
                 if not items:
                     break
                 reached_older = False

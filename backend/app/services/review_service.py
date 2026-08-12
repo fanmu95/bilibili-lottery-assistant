@@ -19,7 +19,7 @@ _review_lock = threading.Lock()
 _review_running = False
 
 REVIEW_BATCH = 5          # 每批复核条数（思考模式，控制输出量）
-REVIEW_LIMIT = 15         # 每轮最多复核条数
+REVIEW_LIMIT = 30         # 每轮最多复核条数（批间 3 线程并行，30 条约 40 秒）
 
 
 def _apply_review(act, verdict: dict) -> bool:
@@ -67,6 +67,13 @@ def ensure_reviews(db, limit: int = REVIEW_LIMIT) -> int:
             "api_key": settings_map.get("llm_api_key", ""),
             "model": settings_map.get("llm_model", ""),
         }
+        # 合并当前模型的参数覆盖（llm_model_overrides：temperature/top_p/max_tokens）
+        try:
+            from . import llm_client as _lc
+            llm_cfg.update(_lc.resolve_model_overrides(
+                settings_map, llm_cfg.get("model", "")))
+        except Exception:
+            pass
         if not llm_cfg.get("base_url") or not llm_cfg.get("model"):
             return 0
         now = datetime.now()
@@ -94,7 +101,10 @@ def ensure_reviews(db, limit: int = REVIEW_LIMIT) -> int:
                  for a in cands]
         results = llm_client.review_parse_verdicts_batch(
             llm_cfg["base_url"], llm_cfg["api_key"], llm_cfg["model"],
-            items, batch_size=REVIEW_BATCH)
+            items, batch_size=REVIEW_BATCH,
+            temperature=llm_cfg.get("temperature"),
+            top_p=llm_cfg.get("top_p"),
+            max_tokens=llm_cfg.get("max_tokens"))
         fixed = 0
         skipped = 0
         for a in cands:

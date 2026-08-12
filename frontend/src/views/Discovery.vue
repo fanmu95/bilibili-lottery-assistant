@@ -73,6 +73,11 @@
           {{ scanState.running ? '扫描中...' : '开始扫描' }}
         </el-button>
         <el-button v-if="scanState.running" :icon="VideoPause" @click="stopScan">停止</el-button>
+        <div class="auto-scan-toggle">
+          <el-switch v-model="autoScan" @change="toggleAutoScan" />
+          <span class="auto-scan-label">自动扫描</span>
+          <span class="dim auto-scan-hint">按设置间隔自动批量扫描监控用户补货</span>
+        </div>
       </div>
     </el-card>
 
@@ -143,7 +148,12 @@
               <el-avatar :size="40" :src="row.avatar"><el-icon><User /></el-icon></el-avatar>
               <div>
                 <div class="uname">{{ row.username }}</div>
-                <div class="uid">UID: {{ row.uid }} · {{ row.monitor_type === 'repost' ? '转发监控' : '发布监控' }}</div>
+                <div class="uid">UID: {{ row.uid }} · {{ row.monitor_type === 'repost' ? '转发监控' : '发布监控' }}
+                  <template v-if="(row.note || '').includes('职业')">
+                    <el-tag v-if="row.status === 'inactive'" size="small" type="danger" effect="plain" class="mr4">职业号·已失效</el-tag>
+                    <el-tag v-else size="small" type="warning" effect="plain" class="mr4">职业号</el-tag>
+                  </template>
+                </div>
               </div>
             </div>
           </template>
@@ -206,7 +216,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Upload, Search, User, Delete, Link, VideoPlay, VideoPause, RefreshLeft, Promotion, Loading } from '@element-plus/icons-vue'
-import { watchApi, scanApi } from '../api'
+import { watchApi, scanApi, settingApi } from '../api'
 
 const users = ref([])
 const loading = ref(false)
@@ -215,6 +225,23 @@ const adding = ref(false)
 const scanningId = ref(null)
 const selectedUsers = ref([])
 const batchScanning = ref(false)
+
+// 自动扫描开关（控制调度器按 scan_interval 定时批量扫描）
+const autoScan = ref(true)
+const autoScanLoading = ref(false)
+function loadAutoScan() {
+  settingApi.get().then(d => {
+    const sm = d && d.settings ? d.settings : (d || {})
+    if (sm.auto_scan_enabled !== undefined) autoScan.value = !!sm.auto_scan_enabled
+  }).catch(() => {})
+}
+function toggleAutoScan(v) {
+  autoScanLoading.value = true
+  settingApi.save({ auto_scan_enabled: v })
+    .then(() => ElMessage.success(v ? '已开启自动扫描' : '已关闭自动扫描'))
+    .catch(() => { autoScan.value = !v })
+    .finally(() => { autoScanLoading.value = false })
+}
 
 // 单用户扫描进度（复用扫描管理器状态）
 const scanState = ref({
@@ -386,6 +413,7 @@ async function batchImport() {
 
 onMounted(() => {
   load()
+  loadAutoScan()
   // 若已有扫描在进行，恢复进度展示
   scanApi.progress().then(s => {
     scanState.value = s
@@ -417,5 +445,8 @@ onUnmounted(stopScanPolling)
 .finish-msg { font-size: 12px; }
 .llm-progress { margin-top: 14px; }
 .llm-detail { margin-top: 6px; font-size: 12px; }
-.scan-actions { display: flex; gap: 8px; margin-top: 18px; }
+.scan-actions { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+.auto-scan-toggle { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.auto-scan-label { font-size: 13px; color: var(--el-text-color-primary); }
+.auto-scan-hint { font-size: 12px; }
 </style>

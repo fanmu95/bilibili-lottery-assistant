@@ -67,6 +67,8 @@ class AutoManager:
         self._stop = False
         self._last_schedule_date = None   # 当天已定时启动的日期（防重复）
         self._last_dm_check = None        # 上次私信检测时间（按 dm_check_interval_min 间隔）
+        self._last_review_check = None    # 上次后台复核巡检时间（独立于全自动轮次）
+        self._last_auto_scan = None       # 上次定时自动扫描时间（按 scan_interval 间隔）
         self.state = {
             "running": False,
             "message": "未启动",
@@ -80,6 +82,8 @@ class AutoManager:
             "last_round_at": None,
             "started_at": None,
             "stopped_at": None,
+            "next_round_at": "",      # 下一轮开始时间（HH:MM:SS，等待期间）
+            "next_round_in": None,    # 距下一轮剩余秒数（等待期间每秒更新，其余为 None）
             # ---- 详细动作展示 ----
             "current_action": "",   # 当前动作（如：点赞/关注/转发/评论/生成文案）
             "current_activity": "", # 当前参与的活动标题
@@ -128,6 +132,7 @@ class AutoManager:
             self.state.update(
                 running=True, message="启动中...", round=0, participated=0,
                 scanned_user="", pending_count=0, last_round_at=None, phase=0,
+                next_round_at="", next_round_in=None,
                 started_at=datetime.now().strftime("%H:%M:%S"), stopped_at=None)
         # 启动前先清理已结束的待参与活动（end_time 过期 / 无 end_time 发布超时
         # 的标记 ended），避免启动后第一轮就参与早已结束的活动
@@ -187,7 +192,9 @@ class AutoManager:
 
     def _scheduler_loop(self):
         """常驻调度：①到设定时间自动启动全自动（每天最多一次）；
-        ②私信检测——按设置间隔（dm_check_interval_min）自动已读自动回复私信。"""
+        ②私信检测——按设置间隔（dm_check_interval_min）自动已读自动回复私信；
+        ③后台复核——独立于全自动轮次，按 review_interval_min 间隔自动
+        复核纠错（奖品/结束时间补齐），不开全自动也持续修正。"""
         from ..routers.logs import add_log
         while True:
             try:
@@ -234,6 +241,47 @@ class AutoManager:
                             if n:
                                 add_log(db, "info", "account",
                                         f"私信检测：自动已读 {n} 个自动回复会话")
+                    except Exception:
+                        pass
+                    # ---- ③ 后台复核：独立于全自动轮次，定时修正奖品/结束时间 ----
+                    # 首次巡检立即触发（清积压），之后按 review_interval_min 间隔；
+                    # 与全自动轮次的触发共用单例锁，不会并发重复。
+                    try:
+                        rv_interval = int(float(settings_map.get(
+                            "review_interval_min", 5)))
+                        if rv_interval < 1:
+                            rv_interval = 1
+                        now = datetime.now()
+                        rv_due = (self._last_review_check is None
+                                  or (now - self._last_review_check).total_seconds()
+                                  >= rv_interval * 60)
+                        if rv_due:
+                            self._last_review_check = now
+                            from .review_service import trigger_review_thread
+                            trigger_review_thread()
+                    except Exception:
+                        pass
+                    # ---- ④ 定时自动扫描（scan_interval 分钟间隔，独立于全自动）----
+                    # 后端常驻按间隔批量扫描监控用户补货；受活动发现页"自动扫描"
+                    # 开关（auto_scan_enabled）控制，扫描未运行时才触发
+                    try:
+                        if str(settings_map.get("auto_scan_enabled", "true")).lower() \
+                                in ("true", "1", "yes"):
+                            sc_interval = int(float(settings_map.get("scan_interval", 60)))
+                            if sc_interval < 5:
+                                sc_interval = 5
+                            now = datetime.now()
+                            sc_due = (self._last_auto_scan is None
+                                      or (now - self._last_auto_scan).total_seconds()
+                                      >= sc_interval * 60)
+                            if sc_due:
+                                self._last_auto_scan = now
+                                from .scan_service import scan_manager
+                                if not scan_manager.progress.get("running"):
+                                    ok, _msg = scan_manager.start()
+                                    if ok:
+                                        add_log(db, "info", "scan",
+                                                f"定时自动扫描启动（间隔 {sc_interval} 分钟）")
                     except Exception:
                         pass
                 finally:
@@ -298,16 +346,19 @@ class AutoManager:
             db.commit()
         return cnt
 
-    def _next_scan_user(self, db, force: bool = False):
+    def _next_scan_user(self, db, force: bool = False,
+                        cooldown_seconds: int | None = None):
         """找下一个可扫描的监控用户（轮询均衡 + 冷却保护）。
 
-        冷却：最近 SCAN_COOLDOWN_MIN 分钟内扫过的用户跳过，
-        避免只有少量用户时每轮都重复扫同一人触发风控。
+        冷却默认 SCAN_COOLDOWN_MIN 分钟；cooldown_seconds 可覆盖——
+        配额满"仅扫描"模式时传轮次间隔（auto_round_sleep），
+        让每轮都能扫到用户持续补货，同一用户至少隔一个轮次再扫。
         force=True（待参与活动极少时）：忽略冷却直接扫描，
         否则活动耗尽后一直等冷却会完全无活动可参与。
         """
         from datetime import timedelta
-        cooldown_before = datetime.now() - timedelta(minutes=SCAN_COOLDOWN_MIN)
+        cooldown = cooldown_seconds if cooldown_seconds else SCAN_COOLDOWN_MIN * 60
+        cooldown_before = datetime.now() - timedelta(seconds=cooldown)
         users = (db.query(models.MonitorUser)
                  .filter(models.MonitorUser.status == "active")
                  .order_by(models.MonitorUser.last_scanned_at.is_(None),
@@ -396,7 +447,6 @@ class AutoManager:
 
         mode = settings_map.get("participate_text_mode", "custom")
         custom_text = settings_map.get("participate_text", "")
-        gen_time = settings_map.get("participate_text_gen_time", "at_parse")
         llm_cfg = {
             "base_url": settings_map.get("llm_base_url", ""),
             "api_key": settings_map.get("llm_api_key", ""),
@@ -430,8 +480,6 @@ class AutoManager:
         rows = sorted(rows, key=lambda a: len(_parse_accs(a.participated_accounts) or []) == 0)
 
         participated = 0
-        # 账号轮转指针（多账号轮流参与）
-        acc_round = 0
         for act in rows:
             if self._stop or participated >= limit:
                 break
@@ -446,131 +494,145 @@ class AutoManager:
                     act_accounts = []
             except Exception:
                 act_accounts = []
-            # 选一个未参与过该活动的账号（轮流）
-            account = None
-            for _ in range(len(accounts_all)):
-                cand = accounts_all[acc_round % len(accounts_all)]
-                acc_round += 1
-                if cand.id not in act_accounts:
-                    account = cand
-                    break
-            if not account:
+            # 参与该活动所有未参与过的账号（一轮参与完，避免半参与积压）：
+            # 之前每轮只参与一个账号 → 半参与活动要等下一轮（轮次间隔可长达
+            # 1000s）才补全，participated_at（今日参与计数依据）延迟设置，
+            # 账号"今日参与"统计长时间不更新
+            pending_accounts = [a for a in accounts_all if a.id not in act_accounts]
+            if not pending_accounts:
                 continue   # 所有账号都已参与过
-            # 该账号的登录 client（每次参与用对应账号身份）
-            act_client = None
-            try:
-                if account.cookies:
-                    act_client = bili_client.BiliClient(
-                        bili_client.cookies_from_json(account.cookies))
-            except Exception:
+            for account in pending_accounts:
+                # 该账号的登录 client（每次参与用对应账号身份）
                 act_client = None
-            # 详细动作：当前活动/账号
-            act_title = (act.title or "")[:30].replace("\n", " ")
-            with self._lock:
-                self.state["current_activity"] = act_title
-                self.state["current_account"] = account.username
-            # ---- 已结束校验：无 end_time 的活动参与前实时探测 ----
-            # 仅依据官方数据：互动抽奖 lottery_notice 显示已开奖（有中奖名单/status 非进行中）。
-            # 普通抽奖（无 notice、无 end_time）不按发布时长判死——
-            # 长周期/未写时间的活动可能仍在进行，宁可多参与一次。
-            if act.end_time is None:
-                ended = False
-                notice = None
-                if probe_client is not None:
-                    try:
-                        notice = probe_client.get_lottery_notice(act.activity_id)
-                        ended = bili_client.BiliClient.notice_is_ended(notice)
-                    except Exception:
-                        notice = None
-                if ended:
-                    act.status = "ended"
-                    self._set_action(
-                        f"活动已开奖（官方），跳过参与「{act_title}」", "info")
-                    add_log(db, "info", "auto",
-                            f"全自动跳过已开奖活动：{act_title}")
-                    continue
-            self._set_action(f"开始参与「{act_title}」（{account.username}）", "start")
-            # 参与文案
-            # 评论取用：优先用预生成评论池（按账号取不同，秒用不等 LLM）；
-            # 只有池为空才现场生成（LLM/随机/自定义），LLM 失败才 fallback 兜底
-            from .participate_text_service import pick_comment_for_account
-            comment_text = pick_comment_for_account(act, account.id) or ""
-            if not comment_text:
-                self._set_action(f"LLM 生成「{act_title}」的参与文案...", "llm")
-                res = resolve_participate_text(
-                    mode=mode, custom_text=custom_text,
-                    fallback_text="关注+转发，支持一下，谢谢！",
-                    client=act_client, dynamic_id=act.activity_id,
-                    activity_text=(act.desc or "") or act.title or "",
-                    llm_cfg=llm_cfg,
-                    allow_network=mode in ("random_comment", "llm_generate", "random"))
-                comment_text = res["text"]
-                if not act.comment_text and mode in ("random_comment", "llm_generate", "random"):
-                    act.comment_text = comment_text
-            # 真实三连
-            errors = []
-            if act_client is not None:
                 try:
-                    detail = act_client.get_dynamic_detail(act.activity_id)
-                    rid, ctype = "", 17
-                    if detail:
-                        rid, ctype = bili_actions.extract_comment_oid(detail)
-                    steps = ("like", "repost", "comment")
-                    if act.author_uid:
-                        steps = ("like", "follow", "repost", "comment")
+                    if account.cookies:
+                        act_client = bili_client.BiliClient(
+                            bili_client.cookies_from_json(account.cookies))
+                except Exception:
+                    act_client = None
+                # 详细动作：当前活动/账号
+                act_title = (act.title or "")[:30].replace("\n", " ")
+                with self._lock:
+                    self.state["current_activity"] = act_title
+                    self.state["current_account"] = account.username
+                # ---- 已结束校验：无 end_time 的活动参与前实时探测 ----
+                # 仅依据官方数据：互动抽奖 lottery_notice 显示已开奖（有中奖名单/status 非进行中）。
+                # 普通抽奖（无 notice、无 end_time）不按发布时长判死——
+                # 长周期/未写时间的活动可能仍在进行，宁可多参与一次。
+                if act.end_time is None:
+                    ended = False
+                    notice = None
+                    if probe_client is not None:
+                        try:
+                            notice = probe_client.get_lottery_notice(act.activity_id)
+                            ended = bili_client.BiliClient.notice_is_ended(notice)
+                        except Exception:
+                            notice = None
+                    if ended:
+                        act.status = "ended"
+                        self._set_action(
+                            f"活动已开奖（官方），跳过参与「{act_title}」", "info")
+                        add_log(db, "info", "auto",
+                                f"全自动跳过已开奖活动：{act_title}")
+                        break
+                # ---- 充电抽奖跳过（设置 skip_charge_lottery）----
+                # 充电抽奖需要付费充电才能参与，自动跳过；识别标题/正文含明确充电抽奖字样
+                try:
+                    _skip_charge = str(settings_map.get(
+                        "skip_charge_lottery", "true")).lower() in ("true", "1", "yes")
+                except Exception:
+                    _skip_charge = True
+                if _skip_charge:
+                    _txt = ((act.title or "") or "") + " " + ((act.desc or "") or "")
+                    if "充电抽" in _txt or "充电抽奖" in _txt:
+                        act.status = "skipped"
+                        self._set_action(
+                            f"充电抽奖，自动跳过「{act_title}」", "info")
+                        add_log(db, "info", "auto",
+                                f"全自动跳过充电抽奖：{act_title}")
+                        break
+                self._set_action(f"开始参与「{act_title}」（{account.username}）", "start")
+                # 参与文案
+                # 评论取用：优先用预生成评论池（按账号取不同，秒用不等 LLM）；
+                # 只有池为空才现场生成（LLM/随机/自定义），LLM 失败才 fallback 兜底
+                from .participate_text_service import pick_comment_for_account
+                comment_text = pick_comment_for_account(act, account.id) or ""
+                if not comment_text:
+                    self._set_action(f"LLM 生成「{act_title}」的参与文案...", "llm")
+                    res = resolve_participate_text(
+                        mode=mode, custom_text=custom_text,
+                        fallback_text="关注+转发，支持一下，谢谢！",
+                        client=act_client, dynamic_id=act.activity_id,
+                        activity_text=(act.desc or "") or act.title or "",
+                        llm_cfg=llm_cfg,
+                        allow_network=mode in ("random_comment", "llm_generate", "random"))
+                    comment_text = res["text"]
+                    if not act.comment_text and mode in ("random_comment", "llm_generate", "random"):
+                        act.comment_text = comment_text
+                # 真实三连
+                errors = []
+                if act_client is not None:
+                    try:
+                        detail = act_client.get_dynamic_detail(act.activity_id)
+                        rid, ctype = "", 17
+                        if detail:
+                            rid, ctype = bili_actions.extract_comment_oid(detail)
+                        steps = ("like", "repost", "comment")
+                        if act.author_uid:
+                            steps = ("like", "follow", "repost", "comment")
 
-                    step_parts = []
+                        step_parts = []
 
-                    def on_step(step_index, total, action, detail):
-                        # 三连动作合并成一行显示：第一步新增一条，后续步骤更新同一条
-                        # 最终形如：三连：点赞（1/4）→ 关注（2/4）→ 转发（3/4）→ 评论（4/4）
-                        step_parts.append(detail)
-                        text = "三连：" + " → ".join(step_parts)
-                        if step_index == 1:
-                            self._set_action(text, "action")
-                        else:
-                            self._update_last_action(text, "action")
+                        def on_step(step_index, total, action, detail):
+                            # 三连动作合并成一行显示：第一步新增一条，后续步骤更新同一条
+                            # 最终形如：三连：点赞（1/4）→ 关注（2/4）→ 转发（3/4）→ 评论（4/4）
+                            step_parts.append(detail)
+                            text = "三连：" + " → ".join(step_parts)
+                            if step_index == 1:
+                                self._set_action(text, "action")
+                            else:
+                                self._update_last_action(text, "action")
 
-                    exec_res = bili_actions.execute_participation(
-                        act_client, dynamic_id=act.activity_id,
-                        sender_uid=act.author_uid or "", comment_text=comment_text,
-                        comment_rid=rid, comment_type=ctype, steps=steps,
-                        on_step=on_step)
-                    errors = exec_res.get("errors", [])
-                except Exception as e:
-                    errors.append(f"互动异常: {e}")
-            else:
-                errors.append("无 cookies，仅本地记录")
-            act_accounts.append(account.id)
-            act.participated_accounts = __import__("json").dumps(act_accounts)
-            # 状态语义：所有 active 账号都参与过才置 participated，否则保持 pending
-            active_ids = [a.id for a in db.query(models.Account)
-                          .filter_by(status="active").all()]
-            if active_ids and all(aid in act_accounts for aid in active_ids):
-                if act.status != "participated":
-                    act.status = "participated"
-                    act.participated_at = datetime.now()
-            else:
-                if act.status == "participated":
-                    act.status = "pending"
-            participated += 1
-            summary = "成功" if not errors else "; ".join(errors[:2])
-            self._set_action(f"完成「{act_title}」（{account.username}）：{summary}",
-                             "success" if not errors else "error")
-            # 今日已参与活动数（participated_at 在今天 0 点之后的完成活动）
-            today_start = datetime.now().replace(
-                hour=0, minute=0, second=0, microsecond=0)
-            today_cnt = db.query(models.Activity).filter(
-                models.Activity.participated_at >= today_start).count()
-            add_log(db, "success", "auto",
-                    f"全自动参与 {act.title}（{account.username}）：{summary}"
-                    f" | 今日已参与 {today_cnt} 个活动")
-            if not self._stop:
-                gap = _activity_gap(db)
-                waited = 0
-                while waited < gap and not self._stop:
-                    time.sleep(0.5)
-                    waited += 0.5
+                        exec_res = bili_actions.execute_participation(
+                            act_client, dynamic_id=act.activity_id,
+                            sender_uid=act.author_uid or "", comment_text=comment_text,
+                            comment_rid=rid, comment_type=ctype, steps=steps,
+                            on_step=on_step)
+                        errors = exec_res.get("errors", [])
+                    except Exception as e:
+                        errors.append(f"互动异常: {e}")
+                else:
+                    errors.append("无 cookies，仅本地记录")
+                act_accounts.append(account.id)
+                act.participated_accounts = __import__("json").dumps(act_accounts)
+                # 状态语义：所有 active 账号都参与过才置 participated，否则保持 pending
+                active_ids = [a.id for a in db.query(models.Account)
+                              .filter_by(status="active").all()]
+                if active_ids and all(aid in act_accounts for aid in active_ids):
+                    if act.status != "participated":
+                        act.status = "participated"
+                        act.participated_at = datetime.now()
+                else:
+                    if act.status == "participated":
+                        act.status = "pending"
+                participated += 1
+                summary = "成功" if not errors else "; ".join(errors[:2])
+                self._set_action(f"完成「{act_title}」（{account.username}）：{summary}",
+                                 "success" if not errors else "error")
+                # 今日已参与活动数（participated_at 在今天 0 点之后的完成活动）
+                today_start = datetime.now().replace(
+                    hour=0, minute=0, second=0, microsecond=0)
+                today_cnt = db.query(models.Activity).filter(
+                    models.Activity.participated_at >= today_start).count()
+                add_log(db, "success", "auto",
+                        f"全自动参与 {act.title}（{account.username}）：{summary}"
+                        f" | 今日已参与 {today_cnt} 个活动")
+                if not self._stop:
+                    gap = _activity_gap(db)
+                    waited = 0
+                    while waited < gap and not self._stop:
+                        time.sleep(0.5)
+                        waited += 0.5
         db.commit()
         return participated
 
@@ -598,21 +660,20 @@ class AutoManager:
                     self.state["last_round_at"] = datetime.now().strftime("%H:%M:%S")
                     self.state["message"] = (f"第 {self.state['round']} 轮："
                                              f"待参与 {pending} 个")
-                # 今日配额已满：仅扫描不参与（避免空转"无可参与"，
-                # 持续扫描补充活动，0 点后配额重置自动恢复参与）
+                # 今日配额已满：不参与、不扫描（活动发现页"自动扫描"开关负责补货），
+                # 等待 0 点后配额重置自动恢复参与
                 quota_exhausted = self._quota_exhausted(db)
                 if quota_exhausted:
                     add_log(db, "warning", "auto",
-                            "今日参与配额已用完，暂停参与；继续扫描补充活动，"
-                            "0 点后自动恢复参与")
+                            "今日参与配额已用完，暂停参与，等待 0 点后自动恢复参与")
                     pending = 0   # 仅用于分支判断（state 已保存真实值）
 
                 if pending < AUTO_MIN_ACTIVITIES:
-                    # 活动极少(<3)或配额满时忽略冷却强制扫描？
-                    # 注意：配额满（quota_exhausted）时**遵守冷却**——每轮只扫
-                    # 冷却结束的用户，避免高频扫描触发风控（force 仅用于活动真正快耗尽时）
-                    force = (pending < AUTO_MIN_CRITICAL) and not quota_exhausted
-                    if force:
+                    if quota_exhausted:
+                        # 配额已满：不扫描不参与（取消"配额满自动开启扫描"），等 0 点恢复
+                        self._set_action(
+                            "今日参与配额已用完，等待 0 点后自动恢复参与", "info")
+                    elif pending < AUTO_MIN_CRITICAL:
                         # 活动快耗尽：连续扫描多个监控用户，直到有新活动入库或用户扫完，
                         # 避免每轮只扫 1 个用户且该用户无新转发时一直"扫描=0"看起来像没扫
                         scanned_users = 0
@@ -634,6 +695,10 @@ class AutoManager:
                             found = self._scan_one_user(db, user)
                             total_found += found
                             scanned_users += 1
+                            if found > 0:
+                                # 有新活动入库：刷新待参与数（自动扫描入库后界面同步）
+                                with self._lock:
+                                    self.state["pending_count"] = self._count_pending(db)
                             self._set_action(
                                 f"扫描 {user.username} 完成，发现 {found} 个新活动"
                                 f"（本轮已扫 {scanned_users} 人）",
@@ -663,6 +728,10 @@ class AutoManager:
                                     f"全自动：待参与 {pending} < {AUTO_MIN_ACTIVITIES}，"
                                     f"扫描 {user.username}")
                             found = self._scan_one_user(db, user)
+                            if found > 0:
+                                # 有新活动入库：刷新待参与数
+                                with self._lock:
+                                    self.state["pending_count"] = self._count_pending(db)
                             self._set_action(
                                 f"扫描 {user.username} 完成，发现 {found} 个新活动", "success")
                             add_log(db, "info", "auto",
@@ -682,27 +751,39 @@ class AutoManager:
 
                 # 参与剩余活动（每轮限流）
                 if quota_exhausted:
-                    # 配额已满：跳过参与（避免误报"无可参与"），仅扫描
+                    # 配额已满：跳过参与（避免误报"无可参与"），等待 0 点恢复
                     participated = 0
                     self._set_action(
-                        "今日参与配额已用完，本轮仅扫描补充活动（0 点后自动恢复参与）",
+                        "今日参与配额已用完，暂停参与（0 点后自动恢复参与）",
                         "warning")
                 else:
                     with self._lock:
                         self.state["phase"] = 2      # 参与中
-                    self._set_action(f"第 {self.state['round']} 轮：参与中（待参与 {pending} 个，本轮最多 {AUTO_PARTICIPATE_PER_ROUND} 个）...", "info")
-                    participated = self._participate_pending(db, AUTO_PARTICIPATE_PER_ROUND)
+                    # 每轮参与数量：读设置 participate_batch（默认 5），防风控限流
+                    try:
+                        per_round = int(float(_settings_map(db).get(
+                            "participate_batch", AUTO_PARTICIPATE_PER_ROUND)))
+                        if per_round < 1:
+                            per_round = 1
+                        if per_round > 20:
+                            per_round = 20
+                    except Exception:
+                        per_round = AUTO_PARTICIPATE_PER_ROUND
+                    self._set_action(f"第 {self.state['round']} 轮：参与中（待参与 {pending} 个，本轮最多 {per_round} 个）...", "info")
+                    participated = self._participate_pending(db, per_round)
                 if participated:
                     with self._lock:
                         self.state["participated"] += participated
                     remain = self._count_pending(db)
+                    with self._lock:
+                        self.state["pending_count"] = remain
                     self._set_action(f"第 {self.state['round']} 轮参与完成，共参与 {participated} 个（剩余待参与 {remain}）", "success")
                     add_log(db, "success", "auto",
                             f"全自动本轮参与 {participated} 个活动")
                 else:
                     if quota_exhausted:
                         self._set_action(
-                            "今日参与配额已用完，本轮仅扫描（0 点后自动恢复参与）",
+                            "今日参与配额已用完，暂停参与（0 点后自动恢复参与）",
                             "warning")
                     else:
                         self._set_action(f"第 {self.state['round']} 轮：无可参与的新活动（待参与 {pending} 个）", "info")
@@ -721,6 +802,9 @@ class AutoManager:
                     pass
                 # 参与完且待参与仍不足 10 个 -> 跳过轮次等待，立即进入下一轮扫描补活动
                 if participated and remain < AUTO_MIN_ACTIVITIES:
+                    with self._lock:
+                        self.state["next_round_at"] = ""
+                        self.state["next_round_in"] = None
                     continue
                 # 轮次间隔（可配置：auto_round_sleep，默认 60s）
                 try:
@@ -730,11 +814,45 @@ class AutoManager:
                         _round_sleep = 10   # 最小 10s，防高频空转
                 except Exception:
                     _round_sleep = AUTO_ROUND_SLEEP
+                # 轮次冷却期：启动职业号发现（独立线程，与参与/扫描错峰——
+                # 只在轮次等待的冷却窗口运行，避免同一时间大量请求 B 站）
+                try:
+                    from .pro_discovery import (start_discovery,
+                                               get_discovery_progress,
+                                               _pick_candidate_activity)
+                    _pro = get_discovery_progress()
+                    if not _pro.get("running"):
+                        _cand_id = _pick_candidate_activity(db)
+                        if _cand_id:
+                            ok, _msg = start_discovery(_cand_id)
+                            if ok:
+                                add_log(db, "info", "activity",
+                                        f"自动模式冷却期：启动职业号发现（活动 {_cand_id}）")
+                except Exception:
+                    pass
+                # 下一轮倒计时（展示用）：等待开始时记录目标时间，每秒更新剩余秒数
+                _round_end_ts = datetime.now().timestamp() + _round_sleep
+                with self._lock:
+                    self.state["next_round_at"] = datetime.fromtimestamp(
+                        _round_end_ts).strftime("%H:%M:%S")
+                    self.state["next_round_in"] = _round_sleep
                 # 可中断等待：每 1s 检查停止标志，点「停止」立即响应（不再傻等整轮）
                 waited = 0
                 while waited < _round_sleep and not self._stop:
                     time.sleep(1)
                     waited += 1
+                    with self._lock:
+                        self.state["next_round_in"] = max(
+                            0, int(_round_end_ts - datetime.now().timestamp()))
+                # 下一轮开始：暂停职业号发现（避免与参与/扫描同时请求 B 站）
+                try:
+                    from .pro_discovery import stop_discovery
+                    stop_discovery()
+                except Exception:
+                    pass
+                with self._lock:
+                    self.state["next_round_at"] = ""
+                    self.state["next_round_in"] = None
             with self._lock:
                 self.state["running"] = False
                 self.state["message"] = "已停止"

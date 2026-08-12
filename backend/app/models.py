@@ -38,6 +38,7 @@ class MonitorUser(Base):
     status = Column(String(32), default="active")
     note = Column(String(256), default="")
     last_scanned_at = Column(DateTime, nullable=True)
+    empty_scan_count = Column(Integer, default=0)  # 职业号连续无活动扫描次数（>=3 标记失效）
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -69,6 +70,7 @@ class Activity(Base):
     participated_at = Column(DateTime, nullable=True)
     participated_accounts = Column(Text, default="[]")  # JSON: 参与该活动的账号 id 列表
     reviewed_at = Column(DateTime, nullable=True)  # 两阶段复核：第二次 LLM 评判纠错完成时间
+    pro_discovered_at = Column(DateTime, nullable=True)  # 职业号发现完成时间（避免重复发现）
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
