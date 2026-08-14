@@ -1,10 +1,12 @@
-# B站抽奖助手 - NAS 部署（arm64 直接构建）
-# 用法：docker compose up -d --build
+# B站抽奖助手 - NAS 部署（拉取 ghcr.io 镜像，amd64/arm64 自动匹配）
+# 用法：docker compose up -d
 # 访问：http://<NAS_IP>:8000
+#
+# 若想在本地源码目录构建（不使用 ghcr.io 镜像）：
+#   把 image 一行换成  build: .  （同时 image 改为 bili-lottery-assistant:latest）
 services:
   bili-lottery:
-    build: .
-    image: bili-lottery-assistant:latest
+    image: ghcr.io/fanmu95/bilibili-lottery-assistant:latest
     container_name: bili-lottery
     ports:
       - "8000:8000"
