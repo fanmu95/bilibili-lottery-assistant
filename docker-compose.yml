@@ -1,15 +1,15 @@
-# B站抽奖助手 - NAS（群晖）部署配置
-# 放置目录：/volume1/Docker/bili-lottery/docker-compose.yml
-# 用法：cd /volume1/Docker/bili-lottery && docker compose up -d
+# 抽奖助手 - NAS（群晖）部署配置
+# 放置目录：/volume1/Docker/lottery-app/docker-compose.yml
+# 用法：cd /volume1/Docker/lottery-app && docker compose up -d
 # 访问：http://<NAS_IP>:8000
 # 镜像：ghcr.io（已公开，免登录拉取；amd64/arm64 自动匹配）
 services:
-  bili-lottery:
-    image: ghcr.io/fanmu95/bilibili-lottery-assistant:latest
-    container_name: bili-lottery
+  lottery-app:
+    image: ghcr.io/fanmu95/lottery-assistant:latest
+    container_name: lottery-app
     ports:
       - "8000:8000"
     volumes:
       # 数据持久化到 NAS 共享文件夹（配置/账号cookies/活动数据，升级不丢）
-      - /volume1/Docker/bili-lottery/data:/app/data
+      - /volume1/Docker/lottery-app/data:/app/data
     restart: unless-stopped

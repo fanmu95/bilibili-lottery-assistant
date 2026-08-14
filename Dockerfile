@@ -1,7 +1,7 @@
 # ============================================================
-# B站抽奖助手 - 多架构 Docker 镜像
-#   · NAS（arm64）：直接 `docker build -t bili-lottery .` 即得 arm 架构镜像
-#   · 任意架构构建：`docker buildx build --platform linux/arm64 -t bili-lottery .`
+# 抽奖助手 - 多架构 Docker 镜像
+#   · NAS（arm64）：直接 `docker build -t lottery-app .` 即得 arm 架构镜像
+#   · 任意架构构建：`docker buildx build --platform linux/arm64 -t lottery-app .`
 #   · 数据持久化：挂载卷到 /app/data（SQLite/账号cookies/配置）
 # ============================================================
 

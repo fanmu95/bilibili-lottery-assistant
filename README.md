@@ -1,6 +1,6 @@
-# B站自动抽奖助手
+# 自动抽奖助手
 
-多账号自动参与 B 站抽奖动态的一体化工具：监控用户扫描 → LLM 深度解析 → 两阶段复核 → 自动三连参与 → 私信检测回复。
+多账号自动参与 平台抽奖动态的一体化工具：监控用户扫描 → LLM 深度解析 → 两阶段复核 → 自动三连参与 → 私信检测回复。
 
 - **后端**：FastAPI + SQLite（单文件库，配置/账号/活动全在一个 db）
 - **前端**：Vue3 + Element Plus（浏览器访问）
@@ -13,8 +13,8 @@
 
 ### 方式 A：Windows exe（桌面，最简单）
 
-1. **下载**：仓库 **Releases** 页 → 最新版 → `bili-lottery-assistant-win64.zip`
-2. **运行**：解压 → 双击 `B站抽奖助手.exe` → 自动打开浏览器 `http://127.0.0.1:8000`（端口被占用自动换 8001~8019）
+1. **下载**：仓库 **Releases** 页 → 最新版 → `lottery-assistant-win64.zip`
+2. **运行**：解压 → 双击 `抽奖助手.exe` → 自动打开浏览器 `http://127.0.0.1:8000`（端口被占用自动换 8001~8019）
 3. **数据目录**：exe 旁 `data/` 文件夹（备份 = 拷它；迁移 = 整个文件夹拷走）
 
 ### 方式 B：Docker（NAS / Linux 服务器）
@@ -24,13 +24,13 @@
 ```yaml
 # docker-compose.yml
 services:
-  bili-lottery:
-    image: ghcr.io/fanmu95/bilibili-lottery-assistant:latest
-    container_name: bili-lottery
+  lottery-app:
+    image: ghcr.io/fanmu95/lottery-assistant:latest
+    container_name: lottery-app
     ports:
       - "8000:8000"          # 左边宿主机端口可改，右边必须是 8000
     volumes:
-      - /volume1/Docker/bili-lottery/data:/app/data   # 数据持久化，升级不丢
+      - /volume1/Docker/lottery-app/data:/app/data   # 数据持久化，升级不丢
     restart: unless-stopped
 ```
 
@@ -82,7 +82,7 @@ docker compose pull && docker compose up -d   # 升级
 | `participate_text_mode` | 评论模式：**custom** 固定文案 / **random_comment** 借用评论区真实评论 / **llm_generate** LLM 贴合正文生成 / **random** 随机混合（推荐） |
 | `participate_text` | custom 模式下的固定评论内容 |
 
-> 评论形态已拟人化：长短随机（短评"好运/抽我"+ 长评）、支持 B 站表情代码（[doge] 等）、兜底文案池随机抽取。
+> 评论形态已拟人化：长短随机（短评"好运/抽我"+ 长评）、支持 平台表情代码（[doge] 等）、兜底文案池随机抽取。
 
 ### 3️⃣ 扫描与调度
 
@@ -108,7 +108,7 @@ docker compose pull && docker compose up -d   # 升级
 | `action_interval_min/max` | 三连每步动作间隔（秒，随机抖动） | 1.5~3 |
 | `activity_gap_min/max` | 每个活动参与完的间隔（秒） | 3~5 |
 | `auto_round_sleep` | **轮次间隔**（秒）——每轮参与完的等待；待参与<10 时自动跳过 | 60 |
-| `bili_rps` | B 站接口全局限流速率（请求/秒） | 3 |
+| `bili_rps` | 平台接口全局限流速率（请求/秒） | 3 |
 
 > **提速技巧**：想快点跑完配额 → 调大 `participate_batch`、调小 `auto_round_sleep`（如 120）。注意别太激进（防风控）。
 
