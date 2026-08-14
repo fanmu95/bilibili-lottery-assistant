@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from ..database import DATA_DIR, get_db
@@ -85,6 +85,26 @@ def list_accounts(db: Session = Depends(get_db)):
     rows = db.query(models.Account).order_by(models.Account.id.desc()).all()
     stats = _participation_stats(db)
     return [_ser(a, stats) for a in rows]
+
+
+@router.get("/accounts/{account_id}/export-cookies")
+def export_account_cookies(account_id: int, db: Session = Depends(get_db)):
+    """导出指定账号的登录 cookies（JSON，迁移到其他机器/exe/Docker 部署时用）。
+    注意：cookies 即登录态，导出文件等于账号凭证，请妥善保管。"""
+    acc = db.get(models.Account, account_id)
+    if not acc:
+        raise HTTPException(404, "账号不存在")
+    data = [{
+        "uid": acc.uid,
+        "username": acc.username,
+        "status": acc.status,
+        "cookies": acc.cookies or "",
+    }]
+    fname = f"bili_cookies_{acc.uid}.json"   # ASCII 安全（HTTP 头不能含中文，前端下载名另用 username）
+    return JSONResponse(
+        data,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @router.put("/accounts/{account_id}")

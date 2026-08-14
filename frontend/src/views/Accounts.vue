@@ -76,6 +76,7 @@
               <el-button size="small" :icon="Bell" :disabled="row.status !== 'active'"
                 @click="openMentions(row)">评论/艾特</el-button>
               <el-button size="small" :icon="Refresh" :disabled="row.status !== 'active'" @click="refreshAccount(row)">刷新</el-button>
+              <el-button size="small" :icon="Download" :disabled="row.status !== 'active'" @click="exportCookies(row)">导出Cookie</el-button>
               <el-button size="small" :icon="SwitchButton" @click="openLoginDialog(row)">重登</el-button>
               <el-button size="small" :icon="Delete" type="danger" @click="removeAccount(row)">删除</el-button>
             </div>
@@ -183,7 +184,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
-import { Plus, Refresh, Delete, User, ChatDotRound, Camera, SwitchButton, Bell } from '@element-plus/icons-vue'
+import { Plus, Refresh, Delete, User, ChatDotRound, Camera, SwitchButton, Bell, Download } from '@element-plus/icons-vue'
 import { accountApi } from '../api'
 
 const accounts = ref([])
@@ -200,6 +201,22 @@ async function load() {
     refreshUnreadBaseline()
     refreshUnreadBadges()
   } finally { loading.value = false }
+}
+
+// 导出指定账号的登录 cookies（JSON，迁移到其他机器/exe/Docker 时用）
+async function exportCookies(row) {
+  try {
+    const data = await accountApi.exportCookies(row.id)
+    const text = JSON.stringify(data, null, 2)
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `bili_cookies_${row.username || row.uid}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success(`已导出 ${row.username} 的 cookies`)
+  } catch (e) { /* 拦截器已提示 */ }
 }
 
 // ---------- 账号未读徽标（头像上显示，独立于私信检测白名单） ----------

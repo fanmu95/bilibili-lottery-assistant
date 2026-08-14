@@ -9,6 +9,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,7 @@ def _ser(u: models.MonitorUser) -> dict:
         "status": u.status,
         "note": u.note or "",
         "empty_scan_count": u.empty_scan_count or 0,
+        "scanned_count": u.scanned_count or 0,
         "last_scanned_at": u.last_scanned_at.strftime("%Y-%m-%d %H:%M:%S") if u.last_scanned_at else "",
     }
 
@@ -51,6 +53,17 @@ def list_watch_users(monitor_type: str = "", keyword: str = "",
             models.MonitorUser.uid.contains(keyword)))
     rows = q.order_by(models.MonitorUser.id.desc()).all()
     return {"total": len(rows), "items": [_ser(u) for u in rows]}
+
+
+@router.get("/export")
+def export_watch_users(db: Session = Depends(get_db)):
+    """导出监控用户：一行一个 UID（与批量导入格式兼容，可直接复制回导入框）"""
+    rows = db.query(models.MonitorUser).order_by(models.MonitorUser.id.asc()).all()
+    content = "\n".join(u.uid for u in rows if u.uid)
+    return PlainTextResponse(
+        content,
+        media_type="text/plain",
+        headers={"Content-Disposition": 'attachment; filename="watch_users.txt"'})
 
 
 @router.post("")

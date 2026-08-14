@@ -170,7 +170,8 @@ def on_startup():
             from sqlalchemy import text
             _new_cols = {
                 "activities": [("pro_discovered_at", "DATETIME")],
-                "monitor_users": [("empty_scan_count", "INTEGER")],
+                "monitor_users": [("empty_scan_count", "INTEGER"),
+                                  ("scanned_count", "INTEGER")],
             }
             for _tbl, _cols in _new_cols.items():
                 _cols_exist = {r[1] for r in db.execute(

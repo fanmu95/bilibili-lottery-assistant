@@ -108,6 +108,7 @@
         <el-form-item>
           <el-button type="primary" :icon="Plus" :loading="adding" @click="addUser">添加</el-button>
           <el-button :icon="Upload" :loading="batchLoading" @click="batchVisible = true">批量导入</el-button>
+          <el-button :icon="Download" @click="exportUsers">导出</el-button>
         </el-form-item>
       </el-form>
       <el-alert type="info" :closable="false" show-icon
@@ -153,6 +154,11 @@
                     <el-tag v-if="row.status === 'inactive'" size="small" type="danger" effect="plain" class="mr4">职业号·已失效</el-tag>
                     <el-tag v-else size="small" type="warning" effect="plain" class="mr4">职业号</el-tag>
                   </template>
+                </div>
+                <div class="uid" style="color: var(--el-text-color-secondary);">
+                  发现 {{ row.scanned_count || 0 }} 个活动
+                  <template v-if="row.empty_scan_count > 0"><el-tag size="small" type="info" effect="plain" class="mr4">连续 {{ row.empty_scan_count }} 次无活动</el-tag></template>
+                  <el-tag v-if="row.status === 'inactive'" size="small" type="danger" effect="plain" class="mr4">已失效</el-tag>
                 </div>
               </div>
             </div>
@@ -215,7 +221,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Upload, Search, User, Delete, Link, VideoPlay, VideoPause, RefreshLeft, Promotion, Loading } from '@element-plus/icons-vue'
+import { Plus, Upload, Search, User, Delete, Link, VideoPlay, VideoPause, RefreshLeft, Promotion, Loading, Download } from '@element-plus/icons-vue'
 import { watchApi, scanApi, settingApi } from '../api'
 
 const users = ref([])
@@ -345,6 +351,21 @@ async function addUser() {
     addForm.value.uid = ''
     load()
   } finally { adding.value = false }
+}
+
+// 导出监控用户：一行一个 UID（与批量导入格式兼容）
+async function exportUsers() {
+  try {
+    const text = await watchApi.exportList()
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'watch_users.txt'
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success('已导出监控用户（一行一个 UID）')
+  } catch (e) { /* 拦截器已提示 */ }
 }
 
 function openSpace(row) {

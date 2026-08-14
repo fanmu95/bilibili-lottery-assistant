@@ -47,6 +47,8 @@ DEFAULT_SETTINGS = {
     "review_interval_min": 5,                # 后台复核间隔（分钟，独立于全自动轮次，后端启动常驻自动修正奖品/时间）
     "participate_batch": 3,                  # 单批次参与数量
     "skip_charge_lottery": True,             # 充电抽奖自动跳过（对齐 bilibinggo）
+    "auto_pro_scan_enabled": True,           # 自动模式开关：轮次冷却期是否扫描职业号（错峰执行）
+    "monitor_empty_scan_remove": 3,          # 监控用户连续 N 次扫描无活动 → 标记失效剔除（0=不启用）
     # ---- 防风控 ----
     "daily_participate_limit": 100,          # 每账号每日参与上限（防被标记）
     "action_interval_min": 1.5,              # 动作最小间隔（秒，随机抖动）

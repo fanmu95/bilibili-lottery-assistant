@@ -572,15 +572,18 @@ def scan_single_user(db, user) -> int:
         ))
         found += 1
     user.last_scanned_at = datetime.now()
-    # 职业号质量复核：连续扫描无抽奖活动 → 计数累加，达到上限标记失效（inactive），
-    # 不再参与扫描——避免加入后动态变化/误判的"伪职业号"长期占用监控资源
-    if user.note and "职业" in user.note and user.status == "active":
+    user.scanned_count = (user.scanned_count or 0) + found   # 累计扫描发现活动数（质量指标）
+    # 质量剔除（通用，含职业号）：连续扫描无抽奖活动 → 计数累加，达到设置阈值
+    # 标记失效（inactive）不再参与扫描——避免动态变化/误判的无效用户长期占用监控资源
+    remove_after = int(settings_map.get("monitor_empty_scan_remove", PRO_EMPTY_LIMIT) or 0)
+    if remove_after > 0 and user.status == "active":
         if found == 0:
             user.empty_scan_count = (user.empty_scan_count or 0) + 1
-            if user.empty_scan_count >= PRO_EMPTY_LIMIT:
+            if user.empty_scan_count >= remove_after:
                 user.status = "inactive"
+                tag = "职业号" if (user.note or "").find("职业") >= 0 else "监控用户"
                 add_log(db, "warning", "monitor",
-                        f"职业号 {user.username}（UID {user.uid}）连续 "
+                        f"{tag} {user.username}（UID {user.uid}）连续 "
                         f"{user.empty_scan_count} 次扫描无抽奖活动，标记失效")
         else:
             user.empty_scan_count = 0

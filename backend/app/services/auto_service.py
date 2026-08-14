@@ -467,7 +467,11 @@ class AutoManager:
                         | (models.Activity.end_time > now))
                 # 未参与过的活动排最前（新活动 end_time 常很晚，
                 # 若按 end_time asc + limit 会把新活动切掉导致「无可参与」）
+                # 注意：SQLite 中 NULL 在 ASC 排序里排**最前**——end_time 为空的
+                # 活动会被优先参与，导致不按最近开奖日期执行。必须加
+                # end_time.is_(None).asc() 让无日期活动排最后。
                 .order_by(models.Activity.participated_at.is_(None).desc(),
+                          models.Activity.end_time.is_(None).asc(),
                           models.Activity.end_time.asc())
                 .limit(limit * 15).all())
         # 内存过滤：排除所有 active 账号都已参与的活动（无账号可参与）
@@ -815,19 +819,24 @@ class AutoManager:
                 except Exception:
                     _round_sleep = AUTO_ROUND_SLEEP
                 # 轮次冷却期：启动职业号发现（独立线程，与参与/扫描错峰——
-                # 只在轮次等待的冷却窗口运行，避免同一时间大量请求 B 站）
+                # 只在轮次等待的冷却窗口运行，避免同一时间大量请求 B 站；
+                # 开关：设置 auto_pro_scan_enabled）
                 try:
-                    from .pro_discovery import (start_discovery,
-                                               get_discovery_progress,
-                                               _pick_candidate_activity)
-                    _pro = get_discovery_progress()
-                    if not _pro.get("running"):
-                        _cand_id = _pick_candidate_activity(db)
-                        if _cand_id:
-                            ok, _msg = start_discovery(_cand_id)
-                            if ok:
-                                add_log(db, "info", "activity",
-                                        f"自动模式冷却期：启动职业号发现（活动 {_cand_id}）")
+                    _sm2 = _settings_map(db)
+                    _pro_enabled = str(_sm2.get(
+                        "auto_pro_scan_enabled", "True")).lower() in ("true", "1", "yes")
+                    if _pro_enabled:
+                        from .pro_discovery import (start_discovery,
+                                                    get_discovery_progress,
+                                                    _pick_candidate_activity)
+                        _pro = get_discovery_progress()
+                        if not _pro.get("running"):
+                            _cand_id = _pick_candidate_activity(db)
+                            if _cand_id:
+                                ok, _msg = start_discovery(_cand_id)
+                                if ok:
+                                    add_log(db, "info", "activity",
+                                            f"自动模式冷却期：启动职业号发现（活动 {_cand_id}）")
                 except Exception:
                     pass
                 # 下一轮倒计时（展示用）：等待开始时记录目标时间，每秒更新剩余秒数

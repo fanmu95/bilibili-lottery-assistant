@@ -28,6 +28,7 @@ export const accountApi = {
   ackAtUnread: (id) => http.post(`/accounts/${id}/ack-at-unread`),
   ackReplyUnread: (id) => http.post(`/accounts/${id}/ack-reply-unread`),
   readSession: (id, talkerId, ackSeqno) => http.post(`/accounts/${id}/sessions/${talkerId}/read`, null, { params: { ack_seqno: ackSeqno || 0 } }),
+  exportCookies: (id) => http.get(`/accounts/${id}/export-cookies`),
 }
 
 // ---------------- 监控用户（活动发现） ----------------
@@ -39,6 +40,7 @@ export const watchApi = {
   remove: (id) => http.delete(`/watch-users/${id}`),
   scan: (id) => http.post(`/watch-users/${id}/scan`),
   batchDelete: (ids) => http.post('/watch-users/batch-delete', { ids }),
+  exportList: () => http.get('/watch-users/export'),
 }
 
 // ---------------- 活动 ----------------

@@ -38,7 +38,8 @@ class MonitorUser(Base):
     status = Column(String(32), default="active")
     note = Column(String(256), default="")
     last_scanned_at = Column(DateTime, nullable=True)
-    empty_scan_count = Column(Integer, default=0)  # 职业号连续无活动扫描次数（>=3 标记失效）
+    empty_scan_count = Column(Integer, default=0)  # 连续无活动扫描次数（>= 设置阈值标记失效剔除）
+    scanned_count = Column(Integer, default=0)     # 累计扫描发现的活动数（质量指标）
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

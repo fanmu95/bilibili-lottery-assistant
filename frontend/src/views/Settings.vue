@@ -83,6 +83,14 @@
                 <el-switch v-model="form.scan_llm_verify" />
                 <span class="hint" style="margin-left: 8px">需要在上方配置并启用 LLM</span>
               </el-form-item>
+              <el-form-item label="自动模式扫描职业号">
+                <el-switch v-model="form.auto_pro_scan_enabled" />
+                <span class="hint" style="margin-left: 8px">自动模式轮次冷却期间是否执行职业号发现（错峰，避免与参与同时请求B站）</span>
+              </el-form-item>
+              <el-form-item label="连续无活动剔除">
+                <el-input-number v-model="form.monitor_empty_scan_remove" :min="0" :max="20" />
+                <span class="hint" style="margin-left: 8px">监控用户连续 N 次扫描无抽奖活动 → 标记失效剔除；0 = 不启用</span>
+              </el-form-item>
 
               <el-divider content-position="left">参与设置</el-divider>
               <el-form-item label="参与文案模式">
@@ -315,6 +323,8 @@ async function save() {
     scan_interval: form.scan_interval,
     scan_llm_verify: form.scan_llm_verify,
     watch_backfill_days: form.watch_backfill_days,
+    auto_pro_scan_enabled: form.auto_pro_scan_enabled,
+    monitor_empty_scan_remove: form.monitor_empty_scan_remove,
     participate_text: form.participate_text,
     participate_text_mode: form.participate_text_mode,
     participate_batch: form.participate_batch,
