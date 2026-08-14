@@ -33,3 +33,4 @@ dist/
 *.spec
 ci_*.log
 
+seed-data/
