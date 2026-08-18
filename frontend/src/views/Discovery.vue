@@ -70,8 +70,9 @@
       <!-- 按钮行 -->
       <div class="scan-actions">
         <el-button type="primary" :icon="VideoPlay" :loading="scanState.running" :disabled="scanState.running" @click="startScan">
-          {{ scanState.running ? '扫描中...' : '开始扫描' }}
+          {{ scanState.running ? '扫描中...' : (scanState.message?.includes('断点') ? '继续扫描' : '开始扫描') }}
         </el-button>
+        <el-button :icon="RefreshLeft" :disabled="scanState.running" @click="rescanAll">重扫全部</el-button>
         <el-button v-if="scanState.running" :icon="VideoPause" @click="stopScan">停止</el-button>
         <div class="auto-scan-toggle">
           <el-switch v-model="autoScan" @change="toggleAutoScan" />
@@ -293,9 +294,14 @@ async function startScan() {
   ElMessage.success(res.message)
   pollScanProgress()
 }
+async function rescanAll() {
+  const res = await scanApi.start(null, true)
+  ElMessage.success('已清空断点，将从第一个用户重新扫描')
+  pollScanProgress()
+}
 async function stopScan() {
   await scanApi.stop()
-  ElMessage.info('已请求停止')
+  ElMessage.info('已请求停止（下次扫描将从上次位置继续）')
 }
 
 async function pollScanProgress() {

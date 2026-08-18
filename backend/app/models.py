@@ -72,6 +72,7 @@ class Activity(Base):
     participated_accounts = Column(Text, default="[]")  # JSON: 参与该活动的账号 id 列表
     reviewed_at = Column(DateTime, nullable=True)  # 两阶段复核：第二次 LLM 评判纠错完成时间
     pro_discovered_at = Column(DateTime, nullable=True)  # 职业号发现完成时间（避免重复发现）
+    cleanup_deleted_at = Column(DateTime, nullable=True)  # 清理：已开奖未中奖的转发动态被删除时间（避免重复删）
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

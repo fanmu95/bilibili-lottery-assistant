@@ -68,6 +68,7 @@ class AutoManager:
         self._last_schedule_date = None   # 当天已定时启动的日期（防重复）
         self._last_dm_check = None        # 上次私信检测时间（按 dm_check_interval_min 间隔）
         self._last_review_check = None    # 上次后台复核巡检时间（独立于全自动轮次）
+        self._last_cleanup_check = None   # 上次转发动态自动清理时间（cleanup_auto_interval_min）
         self._last_auto_scan = None       # 上次定时自动扫描时间（按 scan_interval 间隔）
         self.state = {
             "running": False,
@@ -284,6 +285,33 @@ class AutoManager:
                                                 f"定时自动扫描启动（间隔 {sc_interval} 分钟）")
                     except Exception:
                         pass
+                    # ---- ⑤ 转发动态自动清理（已开奖未中奖删除，受开关+间隔控制）----
+                    # 默认仅手动（cleanup_auto_interval_min=0）；开启后按间隔巡检，
+                    # 只删除「已开奖且中奖名单无当前账号」的转发动态（dry_run 预览在接口层）
+                    try:
+                        if str(settings_map.get("cleanup_enabled", "")).lower() \
+                                in ("true", "1", "yes"):
+                            cl_interval = int(float(settings_map.get(
+                                "cleanup_auto_interval_min", 0) or 0))
+                            if cl_interval > 0:
+                                now = datetime.now()
+                                cl_due = (self._last_cleanup_check is None
+                                          or (now - self._last_cleanup_check).total_seconds()
+                                          >= cl_interval * 60)
+                                if cl_due:
+                                    self._last_cleanup_check = now
+                                    from .cleanup_service import cleanup_transfers
+                                    db2 = SessionLocal()
+                                    try:
+                                        stat = cleanup_transfers(db2, dry_run=False)
+                                        if stat.get("deleted"):
+                                            add_log(db, "warning", "activity",
+                                                    f"自动清理：删除 {stat['deleted']} 条"
+                                                    f"已开奖未中奖转发（检查 {stat['checked']}）")
+                                    finally:
+                                        db2.close()
+                    except Exception:
+                        pass
                 finally:
                     db.close()
             except Exception:
@@ -293,21 +321,56 @@ class AutoManager:
     # ------------------------------------------------------------------
 
     def _count_pending(self, db) -> int:
-        """待参与（pending 且未过期）活动数。
+        """可参与活动数：至少一个 active 账号未参与过、且未结束的活动数。
 
-        无 end_time（结束时间未定）的活动同样视为可参与——
-        只有明确已过期的才排除。
+        口径对齐参与候选池（status IN pending/participated 且未过期）——
+        已 participated 但新账号可补参与的活动也计入，避免展示数少于实际可参与数。
+        无 end_time（结束时间未定）的活动同样视为可参与。
         """
-        from .bili_client import BiliClient  # noqa
+        import json as _json
         now = datetime.now()
-        return db.query(models.Activity).filter(
-            models.Activity.status == "pending",
+        active_ids = [a.id for a in db.query(models.Account)
+                      .filter_by(status="active").all()]
+        rows = db.query(models.Activity).filter(
+            models.Activity.status.in_(["pending", "participated"]),
             (models.Activity.end_time.is_(None))
             | (models.Activity.end_time > now),
-        ).count()
+        ).all()
+        cnt = 0
+        for act in rows:
+            try:
+                accs = _json.loads(act.participated_accounts or "[]")
+                if not isinstance(accs, list):
+                    accs = []
+            except Exception:
+                accs = []
+            if not active_ids or any(aid not in accs for aid in active_ids):
+                cnt += 1
+        return cnt
+
+    def _account_quota_used(self, db, account_id) -> int:
+        """该账号今日已参与数（每账号独立配额，按 participated_accounts 聚合）"""
+        import json as _json
+        try:
+            today_start = datetime.now().replace(
+                hour=0, minute=0, second=0, microsecond=0)
+            acts = (db.query(models.Activity)
+                    .filter(models.Activity.participated_at >= today_start)
+                    .all())
+            cnt = 0
+            for a in acts:
+                try:
+                    accs = _json.loads(a.participated_accounts or "[]")
+                    if isinstance(accs, list) and account_id in accs:
+                        cnt += 1
+                except Exception:
+                    continue
+            return cnt
+        except Exception:
+            return 0
 
     def _quota_exhausted(self, db) -> bool:
-        """今日参与配额是否已用完（daily_participate_limit=0 表示不限）。
+        """所有 active 账号的今日参与配额是否都已用完（每账号独立配额）。
 
         配额满时主循环进入「仅扫描」模式：不参与但持续扫描补充活动，
         0 点后配额自动重置，参与自动恢复——避免空转"无可参与"。
@@ -319,12 +382,11 @@ class AutoManager:
             daily_limit = 100
         if daily_limit <= 0:
             return False
-        today_start = datetime.now().replace(
-            hour=0, minute=0, second=0, microsecond=0)
-        today_cnt = (db.query(models.Activity)
-                     .filter(models.Activity.participated_at >= today_start)
-                     .count())
-        return today_cnt >= daily_limit
+        accounts = db.query(models.Account).filter_by(status="active").all()
+        if not accounts:
+            return False
+        return all(self._account_quota_used(db, a.id) >= daily_limit
+                   for a in accounts)
 
     def _mark_expired(self, db) -> int:
         """把已明确结束的待参与活动标记 ended：
@@ -431,19 +493,12 @@ class AutoManager:
         except Exception:
             pass
 
-        # 每日参与配额校验（防风控：超限停止，避免账号被标记）
+        # 每日参与配额：每账号独立（daily_participate_limit=0 不限），
+        # 在账号循环里逐账号判定；此处读取限制值
         try:
             daily_limit = int(float(settings_map.get("daily_participate_limit", 100)))
-            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            today_cnt = (db.query(models.Activity)
-                         .filter(models.Activity.participated_at >= today_start)
-                         .count())
-            if daily_limit > 0 and today_cnt >= daily_limit:
-                add_log(db, "warning", "auto",
-                        f"今日参与已达上限 {daily_limit} 个，全自动暂停参与")
-                return 0
-        except Exception:
-            pass   # 配额读取失败不阻塞参与
+        except (TypeError, ValueError):
+            daily_limit = 100
 
         mode = settings_map.get("participate_text_mode", "custom")
         custom_text = settings_map.get("participate_text", "")
@@ -461,27 +516,22 @@ class AutoManager:
         import json as _json
         active_ids = [a.id for a in db.query(models.Account)
                       .filter_by(status="active").all()]
+        # 参与顺序：**最近开奖优先**（end_time 升序）——即将开奖的活动先参与，
+        # 防止快开奖的被远期全新活动插队（新账号也按此顺序补参与）。
+        # SQLite 中 NULL 在 ASC 排序里排最前，须加 end_time.is_(None).asc() 让无日期活动排最后。
         rows = (db.query(models.Activity)
                 .filter(models.Activity.status.in_(["pending", "participated"]),
                         (models.Activity.end_time.is_(None))
                         | (models.Activity.end_time > now))
-                # 未参与过的活动排最前（新活动 end_time 常很晚，
-                # 若按 end_time asc + limit 会把新活动切掉导致「无可参与」）
-                # 注意：SQLite 中 NULL 在 ASC 排序里排**最前**——end_time 为空的
-                # 活动会被优先参与，导致不按最近开奖日期执行。必须加
-                # end_time.is_(None).asc() 让无日期活动排最后。
-                .order_by(models.Activity.participated_at.is_(None).desc(),
-                          models.Activity.end_time.is_(None).asc(),
-                          models.Activity.end_time.asc())
+                .order_by(models.Activity.end_time.is_(None).asc(),
+                          models.Activity.end_time.asc(),
+                          models.Activity.participated_at.is_(None).desc())
                 .limit(limit * 15).all())
         # 内存过滤：排除所有 active 账号都已参与的活动（无账号可参与）
         rows = [a for a in rows
                 if not (active_ids and all(
                     aid in (_parse_accs(a.participated_accounts) or [])
                     for aid in active_ids))][:limit * 6]
-        # 参与顺序优化：优先「部分参与」的活动（补全后变 participated，待参与数减少），
-        # 再参与全新活动——否则每个活动只被一个账号参与后仍 pending，数量看起来不变。
-        rows = sorted(rows, key=lambda a: len(_parse_accs(a.participated_accounts) or []) == 0)
 
         participated = 0
         for act in rows:
@@ -506,6 +556,11 @@ class AutoManager:
             if not pending_accounts:
                 continue   # 所有账号都已参与过
             for account in pending_accounts:
+                # 每账号独立配额：该账号今日参与数达上限则跳过（不影响其他账号）
+                if daily_limit > 0 and self._account_quota_used(db, account.id) >= daily_limit:
+                    self._set_action(
+                        f"{account.username} 今日参与配额已满（{daily_limit}），跳过", "info")
+                    continue
                 # 该账号的登录 client（每次参与用对应账号身份）
                 act_client = None
                 try:
@@ -573,23 +628,28 @@ class AutoManager:
                     comment_text = res["text"]
                     if not act.comment_text and mode in ("random_comment", "llm_generate", "random"):
                         act.comment_text = comment_text
-                # 真实三连
+                # 真实三连（预约类动态：先预约再三连，预约即参与抽奖）
                 errors = []
                 if act_client is not None:
                     try:
                         detail = act_client.get_dynamic_detail(act.activity_id)
                         rid, ctype = "", 17
+                        reserve_info = None
                         if detail:
                             rid, ctype = bili_actions.extract_comment_oid(detail)
+                            reserve_info = bili_client.BiliClient.extract_reserve(detail)
                         steps = ("like", "repost", "comment")
                         if act.author_uid:
                             steps = ("like", "follow", "repost", "comment")
+                        if reserve_info:
+                            # 预约类动态（直播预约/视频预约）：预约 + 三连都做，预约前置
+                            steps = ("reserve",) + steps
 
                         step_parts = []
 
                         def on_step(step_index, total, action, detail):
                             # 三连动作合并成一行显示：第一步新增一条，后续步骤更新同一条
-                            # 最终形如：三连：点赞（1/4）→ 关注（2/4）→ 转发（3/4）→ 评论（4/4）
+                            # 最终形如：三连：预约（1/5）→ 点赞（2/5）→ 关注（3/5）→ 转发（4/5）→ 评论（5/5）
                             step_parts.append(detail)
                             text = "三连：" + " → ".join(step_parts)
                             if step_index == 1:
@@ -601,6 +661,7 @@ class AutoManager:
                             act_client, dynamic_id=act.activity_id,
                             sender_uid=act.author_uid or "", comment_text=comment_text,
                             comment_rid=rid, comment_type=ctype, steps=steps,
+                            reserve_info=reserve_info,
                             on_step=on_step)
                         errors = exec_res.get("errors", [])
                     except Exception as e:

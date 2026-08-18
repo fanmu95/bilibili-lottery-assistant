@@ -48,6 +48,7 @@ def _action_gap() -> float:
 
 ACTION_LABELS = {
     "like": "点赞", "follow": "关注", "repost": "转发", "comment": "评论",
+    "reserve": "预约",
 }
 
 # 幂等返回码（已做过该动作）
@@ -181,24 +182,45 @@ def comment_dynamic(client: bili_client.BiliClient, *, rid: str,
         return {"ok": False, "action": "comment", "message": f"评论异常: {e}"}
 
 
+def reserve_dynamic(client: bili_client.BiliClient, *,
+                    reserve_info: dict | None = None) -> dict:
+    """点击动态「预约」按钮（预约即参与抽奖），返回 {ok, message}"""
+    try:
+        if not reserve_info or not reserve_info.get("rid"):
+            return {"ok": False, "action": "reserve", "message": "无预约信息"}
+        res = client.reserve_live(
+            str(reserve_info["rid"]),
+            dynamic_id_str=str(reserve_info.get("dynamic_id_str") or ""),
+            reserve_total=int(reserve_info.get("reserve_total") or 0))
+        msg = res.get("message", "")
+        # 幂等：已预约/重复预约视为成功
+        if not res.get("ok") and any(k in str(msg) for k in ("已预约", "already", "重复")):
+            return {"ok": True, "action": "reserve", "message": "已预约过"}
+        return {"ok": res.get("ok", False), "action": "reserve",
+                "message": msg or ("预约成功" if res.get("ok") else "预约失败")}
+    except Exception as e:
+        return {"ok": False, "action": "reserve", "message": f"预约异常: {e}"}
+
+
 def execute_participation(
     client: bili_client.BiliClient,
     *,
     dynamic_id: str,
     sender_uid: str = "",
     comment_text: str = "",
+    reserve_info: dict | None = None,
     comment_rid: str = "",
     comment_type: int = 17,
     steps: tuple = ("like", "follow", "repost", "comment"),
     dry_run: bool = False,
     on_step=None,
 ) -> dict:
-    """执行参与互动（点赞/关注/转发/评论），返回 {results: [...], ok, errors}
+    """执行参与互动（预约/点赞/关注/转发/评论），返回 {results: [...], ok, errors}
 
-    steps 可配置要执行的动作顺序（默认 like -> follow -> repost -> comment）。
+    steps 可配置要执行的动作顺序；含 "reserve" 时需传 reserve_info（预约类动态：
+    点击预约按钮即参与抽奖，预约 + 三连都做）。
     dry_run=True 时只探测状态不真正执行（用于检查/预演）。
-    on_step: 可选回调 on_step(step_index, total_steps, action_name, detail)，
-            每步开始前调用（对齐 bilibinggo execute_full_participation 的 report_step）。
+    on_step: 可选回调 on_step(step_index, total_steps, action_name, detail)。
     """
     referer = f"https://www.bilibili.com/opus/{dynamic_id}"
     csrf = get_csrf(client)
@@ -209,16 +231,21 @@ def execute_participation(
 
     results = []
     errors = []
-    total = len([s for s in steps if s in ("like", "follow", "repost", "comment")])
+    total = len([s for s in steps
+                 if s in ("reserve", "like", "follow", "repost", "comment")])
     idx = 0
     for step in steps:
-        if step not in ("like", "follow", "repost", "comment"):
+        if step not in ("reserve", "like", "follow", "repost", "comment"):
             continue
         idx += 1
         if on_step:
             on_step(idx, total, step,
                     f"{ACTION_LABELS.get(step, step)}（{idx}/{total}）")
-        if step == "like":
+        if step == "reserve":
+            res = {"ok": True, "action": "reserve",
+                   "message": "将点击预约" if dry_run
+                   else reserve_dynamic(client, reserve_info=reserve_info)}
+        elif step == "like":
             res = {"ok": True, "action": "like", "message": "将点赞"} if dry_run \
                 else like_dynamic(client, dynamic_id=dynamic_id, csrf=csrf, referer=referer)
         elif step == "follow":

@@ -25,14 +25,17 @@ REVIEW_LIMIT = 30         # 每轮最多复核条数（批间 3 线程并行，3
 def _apply_review(act, verdict: dict) -> bool:
     """把复核 verdict 写入活动（非空字段覆盖初判；空字段保留）。返回是否变更。"""
     from .scan_service import _parse_end_time as _scan_parse
+    from . import llm_client
     changed = False
     # prize：复核非空覆盖
     prize = (verdict.get("prize") or "").strip()
     if prize and prize != (act.prize_info or "").strip():
         act.prize_info = prize[:200]
         changed = True
-    # end_time：复核非空覆盖（含具体时刻）
-    et = _scan_parse((verdict.get("end_time") or "").strip())
+    # end_time：复核非空覆盖（含具体时刻；年份按正文兜底校验防补错年）
+    et = _scan_parse(llm_client.fix_end_time_year(
+        str(verdict.get("end_time") or "").strip(),
+        act.desc or act.title or ""))
     if et and et != act.end_time:
         act.end_time = et
         changed = True

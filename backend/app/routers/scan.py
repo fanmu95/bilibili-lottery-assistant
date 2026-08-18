@@ -11,7 +11,8 @@ router = APIRouter(prefix="/api/scan", tags=["scan"])
 
 @router.post("/start")
 def start_scan(body: schemas.ScanRequest):
-    ok, msg = scan_manager.start(body.user_ids)
+    """启动扫描；reset=True 清空断点重扫全部，默认断点续扫"""
+    ok, msg = scan_manager.start(body.user_ids, reset=body.reset)
     return {"ok": ok, "message": msg}
 
 

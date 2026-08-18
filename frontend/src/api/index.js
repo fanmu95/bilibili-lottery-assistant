@@ -81,7 +81,7 @@ export const settingApi = {
 
 // ---------------- 扫描 ----------------
 export const scanApi = {
-  start: (userIds) => http.post('/scan/start', { user_ids: userIds }),
+  start: (userIds, reset = false) => http.post('/scan/start', { user_ids: userIds, reset }),
   stop: () => http.post('/scan/stop'),
   progress: () => http.get('/scan/progress'),
 }
@@ -95,6 +95,14 @@ export const autoApi = {
 
 export const summaryApi = {
   get: () => http.get('/summary'),
+}
+
+// ---------------- 转发动态清理（已开奖未中奖删除） ----------------
+export const cleanupApi = {
+  preview: () => http.post('/cleanup/preview'),
+  run: () => http.post('/cleanup/run'),
+  accountDynamics: (id, data) => http.post(`/cleanup/accounts/${id}/dynamics`, data),
+  accountProgress: (id) => http.get(`/cleanup/accounts/${id}/progress`),
 }
 
 export default http

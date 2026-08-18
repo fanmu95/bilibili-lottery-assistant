@@ -63,6 +63,7 @@ class ActivityUpdate(BaseModel):
 
 class ScanRequest(BaseModel):
     user_ids: Optional[List[int]] = None  # None = 扫描全部
+    reset: bool = False                    # True = 清空断点重扫全部
 
 
 class ParticipateRequest(BaseModel):

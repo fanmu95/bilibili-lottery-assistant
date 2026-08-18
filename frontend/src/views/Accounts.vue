@@ -21,7 +21,7 @@
         </div>
       </template>
       <el-table :data="accounts" v-loading="loading" stripe>
-        <el-table-column label="账号" min-width="240">
+        <el-table-column label="账号" min-width="150">
           <template #default="{ row }">
             <div class="user-cell">
               <!-- 自绘角标：数字完全在头像框内，不超出单元格（el-table 行 overflow:hidden 会裁剪） -->
@@ -68,15 +68,16 @@
           </template>
         </el-table-column>
         <el-table-column prop="last_login_at" label="最近登录" width="170" />
-        <el-table-column label="操作" width="500" fixed="right">
+        <el-table-column label="操作" width="560" fixed="right">
           <template #default="{ row }">
             <div class="ops">
               <el-button size="small" type="primary" plain :icon="ChatDotRound"
-                :disabled="row.status !== 'active'" @click="openMessages(row)">私信回复</el-button>
+                :disabled="row.status !== 'active'" @click="openMessages(row)">私信</el-button>
               <el-button size="small" :icon="Bell" :disabled="row.status !== 'active'"
-                @click="openMentions(row)">评论/艾特</el-button>
+                @click="openMentions(row)">艾特</el-button>
               <el-button size="small" :icon="Refresh" :disabled="row.status !== 'active'" @click="refreshAccount(row)">刷新</el-button>
-              <el-button size="small" :icon="Download" :disabled="row.status !== 'active'" @click="exportCookies(row)">导出Cookie</el-button>
+              <el-button size="small" :icon="Delete" :disabled="row.status !== 'active'" @click="openCleanup(row)">清理</el-button>
+              <el-button size="small" :icon="Download" :disabled="row.status !== 'active'" @click="exportCookies(row)">Cookie</el-button>
               <el-button size="small" :icon="SwitchButton" @click="openLoginDialog(row)">重登</el-button>
               <el-button size="small" :icon="Delete" type="danger" @click="removeAccount(row)">删除</el-button>
             </div>
@@ -178,17 +179,146 @@
         </el-tab-pane>
       </el-tabs>
     </el-dialog>
+
+    <!-- 清理动态弹窗（账号维度：规则勾选 AND 组合，先统计再删除） -->
+    <el-dialog v-model="cleanupVisible" :title="`清理动态 - ${cleanupAcc ? cleanupAcc.username : ''}`"
+      width="700" :close-on-click-modal="false">
+      <el-form label-width="170px">
+        <el-form-item label="清理规则（勾选生效）">
+          <div style="width: 100%">
+            <div class="rule-item">
+              <el-checkbox v-model="cleanupForm.r1" />规则1：列表内活动结束日期超过
+              <el-input-number v-model="cleanupForm.end_days" :min="0" :max="365" size="small" style="width: 90px" />天
+              <span class="hint">（此期间自行检查中奖）</span>
+            </div>
+            <div class="rule-item">
+              <el-checkbox v-model="cleanupForm.r2" />规则2：转发时间距今超过
+              <el-input-number v-model="cleanupForm.forward_days" :min="0" :max="3650" size="small" style="width: 90px" />天
+              直接删（不检查列表/结束日期）
+            </div>
+            <div class="rule-item">
+              <el-checkbox v-model="cleanupForm.r3" />规则3：列表外动态用 LLM 解析结束时间再判定（需启用 LLM）
+            </div>
+            <div class="rule-item">
+              <el-checkbox v-model="cleanupForm.r4" />规则4（互动抽奖）：官方互动抽奖已截止 → 专门检查并清除
+            </div>
+            <div class="dim" style="margin-top: 4px">勾选的规则需<el-tag size="small" type="warning" effect="plain">同时满足（AND）</el-tag>才删除；至少勾选 1 条</div>
+          </div>
+        </el-form-item>
+        <el-form-item label="翻页间隔（秒）">
+          <el-input-number v-model="cleanupForm.scan_gap" :min="0" :max="30" :step="0.5" />
+          <span class="hint" style="margin-left: 8px">扫描动态时每页间隔，防风控（建议 1~2）</span>
+        </el-form-item>
+        <el-form-item label="中奖白名单">
+          <div style="width: 100%">
+            <el-input v-model="cleanupWhitelistText" type="textarea" :rows="3"
+              placeholder="每行一个中奖动态 id，清理时跳过不删" />
+            <el-button size="small" style="margin-top: 4px" @click="saveWhitelist">保存白名单（{{ whitelistCount }} 条）</el-button>
+          </div>
+        </el-form-item>
+      </el-form>
+      <div class="cleanup-result">
+        <!-- 统计过程进度展示 -->
+        <div v-if="cleanupRunning" class="dim" style="margin-bottom: 8px">
+          <el-progress :percentage="cleanupPercent" :stroke-width="10" style="margin-bottom: 6px" />
+          <div>{{ cleanupStage }}</div>
+          <div v-if="cleanupProgress.forwards">已扫描转发 {{ cleanupProgress.forwards }} 条 · 候选 {{ cleanupProgress.candidates }} 条</div>
+          <div v-if="cleanupProgress.stage?.includes('删除中')">
+            <el-tag type="danger" size="large">已删除 {{ cleanupProgress.deleted }} / {{ cleanupProgress.candidates }} 条</el-tag>
+          </div>
+        </div>
+        <!-- 统计结果展示 -->
+        <div v-else-if="cleanupStat" class="dim" style="margin-bottom: 8px">
+          可删除 {{ cleanupStat.to_delete }} | 白名单跳过 {{ cleanupStat.whitelisted }} |
+          已截止(检查期内) {{ cleanupStat.ended_recent }} | 未截止 {{ cleanupStat.not_ended }} |
+          未解析 {{ cleanupStat.no_llm }} | 失败 {{ cleanupStat.failed }}
+          <template v-if="cleanupStat.dry_run === false">· 已删除 {{ cleanupStat.deleted }}</template>
+        </div>
+        <el-table v-if="cleanupStat && cleanupStat.items.length" :data="cleanupStat.items" size="small" max-height="280" stripe>
+          <el-table-column label="源动态ID" width="190">
+            <template #default="{ row }">
+              <el-link type="primary" :href="`https://www.bilibili.com/opus/${row.orig_id}`" target="_blank" :underline="false">
+                {{ row.orig_id }}
+              </el-link>
+            </template>
+          </el-table-column>
+          <el-table-column prop="end_time" label="结束时间" width="130" />
+          <el-table-column prop="reason" label="原因" />
+        </el-table>
+        <!-- 已截止但未满检查期的动态（明确识别展示） -->
+        <el-collapse v-if="cleanupStat && cleanupStat.recent_items?.length" style="margin-top: 6px">
+          <el-collapse-item :title="`已截止但未满检查期（${cleanupStat.recent_items.length} 条，N 天内自行检查中奖，暂不删除）`">
+            <el-table :data="cleanupStat.recent_items" size="small" max-height="200">
+              <el-table-column label="源动态ID" width="190">
+                <template #default="{ row }">
+                  <el-link type="primary" :href="`https://www.bilibili.com/opus/${row.orig_id}`" target="_blank" :underline="false">
+                    {{ row.orig_id }}
+                  </el-link>
+                </template>
+              </el-table-column>
+              <el-table-column prop="end_time" label="截止时间" width="130" />
+              <el-table-column prop="reason" label="状态" />
+            </el-table>
+          </el-collapse-item>
+        </el-collapse>
+        <el-empty v-else-if="cleanupStat" description="没有符合条件的转发动态" :image-size="60" />
+      </div>
+      <template #footer>
+        <el-button @click="cleanupVisible = false" :disabled="cleanupRunning">关闭</el-button>
+        <el-button type="warning" :loading="cleanupLoading" :disabled="cleanupRunning" @click="cleanupAccountPreview">统计</el-button>
+        <el-button type="danger" :disabled="cleanupRunning || !cleanupStat"
+          @click="cleanupAccountRun">删除 {{ cleanupStat ? cleanupStat.to_delete : 0 }} 条</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { Plus, Refresh, Delete, User, ChatDotRound, Camera, SwitchButton, Bell, Download } from '@element-plus/icons-vue'
-import { accountApi } from '../api'
+import { accountApi, cleanupApi, settingApi } from '../api'
 
 const accounts = ref([])
 const loading = ref(false)
+
+// ---------- 清理动态（账号维度） ----------
+const cleanupVisible = ref(false)
+const cleanupAcc = ref(null)
+const cleanupForm = reactive({ r1: true, r2: false, r3: false, r4: false, end_days: 7, forward_days: 0, scan_gap: 1.0 })
+const cleanupLoading = ref(false)
+const cleanupStat = ref(null)
+const cleanupRunning = ref(false)
+const cleanupStage = ref('')
+const cleanupProgress = ref({})
+const cleanupPercent = computed(() => {
+  const p = cleanupProgress.value
+  if (!p.pages && !p.forwards) return 5
+  if (p.stage?.includes('删除中')) {
+    return Math.min(99, Math.round(((p.deleted || 0) + (p.failed || 0)) / Math.max(1, (p.candidates || 1)) * 100))
+  }
+  return 60   // 扫描/匹配阶段固定展示中段进度
+})
+const cleanupWhitelistText = ref('')
+const whitelistCount = ref(0)
+
+// 白名单读写（存设置 cleanup_whitelist，JSON 数组）
+async function loadWhitelist() {
+  try {
+    const s = await settingApi.get()
+    let list = []
+    try { list = JSON.parse(s.cleanup_whitelist || '[]') } catch (e) { list = [] }
+    if (!Array.isArray(list)) list = []
+    cleanupWhitelistText.value = list.join('\n')
+    whitelistCount.value = list.length
+  } catch (e) { /* ignore */ }
+}
+async function saveWhitelist() {
+  const ids = cleanupWhitelistText.value.split('\n').map(s => s.trim()).filter(Boolean)
+  await settingApi.save({ cleanup_whitelist: JSON.stringify(ids) })
+  whitelistCount.value = ids.length
+  ElMessage.success(`白名单已保存（${ids.length} 条）`)
+}
 
 const activeCount = computed(() => accounts.value.filter(a => a.status === 'active').length)
 const expiredCount = computed(() => accounts.value.length - activeCount.value)
@@ -217,6 +347,124 @@ async function exportCookies(row) {
     URL.revokeObjectURL(url)
     ElMessage.success(`已导出 ${row.username} 的 cookies`)
   } catch (e) { /* 拦截器已提示 */ }
+}
+
+// ---------- 清理动态（账号维度）：条件设置 → 统计 → 删除 ----------
+function openCleanup(row) {
+  cleanupAcc.value = row
+  cleanupStat.value = null
+  cleanupVisible.value = true
+  loadWhitelist()
+}
+
+function cleanupPayload() {
+  // 白名单文本 → 数组
+  const wl = cleanupWhitelistText.value.split('\n').map(s => s.trim()).filter(Boolean)
+  return {
+    r1: cleanupForm.r1,
+    r2: cleanupForm.r2,
+    r3: cleanupForm.r3,
+    r4: cleanupForm.r4,
+    end_days: cleanupForm.end_days,
+    forward_days: cleanupForm.forward_days,
+    llm_parse: cleanupForm.r3,
+    interactive_clean: cleanupForm.r4,
+    scan_gap: cleanupForm.scan_gap,
+    whitelist: wl,
+  }
+}
+
+// 轮询进度直到完成，完成时返回 result
+async function pollCleanupProgress(accountId, timeoutMs = 600000) {
+  const start = Date.now()
+  return new Promise((resolve, reject) => {
+    const timer = setInterval(async () => {
+      try {
+        const p = await cleanupApi.accountProgress(accountId)
+        cleanupProgress.value = p
+        cleanupStage.value = p.stage || ''
+        // 完成 = 线程结束且已有 result（刚启动时 running 可能还没置 True，需等待）
+        if (!p.running && (p.result || p.stage === '完成')) {
+          clearInterval(timer)
+          resolve(p.result || null)
+        } else if (!p.running && !p.result && p.stage === '未开始') {
+          // 线程刚启动，progress 还没初始化，继续等
+        } else if (!p.running && p.stage === '出错: 请至少勾选一条清理规则') {
+          clearInterval(timer)
+          resolve(p.result || null)
+        } else if (Date.now() - start > timeoutMs) {
+          clearInterval(timer)
+          reject(new Error('统计超时'))
+        }
+      } catch (e) {
+        clearInterval(timer)
+        reject(e)
+      }
+    }, 1200)
+  })
+}
+
+async function cleanupAccountPreview() {
+  cleanupRunning.value = true
+  cleanupLoading.value = true
+  cleanupStat.value = null
+  cleanupStage.value = '启动中...'
+  cleanupProgress.value = { running: true, stage: '启动中...' }
+  try {
+    await cleanupApi.accountDynamics(cleanupAcc.value.id, {
+      ...cleanupPayload(), dry_run: true,
+    })
+    const result = await pollCleanupProgress(cleanupAcc.value.id)
+    if (result?.error) {
+      ElMessage.warning(result.error)
+      cleanupStat.value = null
+    } else {
+      cleanupStat.value = { ...result, dry_run: true }
+      ElMessage.success(`统计完成：可删除 ${result.to_delete} 条`)
+    }
+  } catch (e) {
+    if (e?.response?.data?.detail) ElMessage.warning(e.response.data.detail)
+    else if (!/超时|拦截/.test(String(e))) ElMessage.error('统计失败')
+  } finally {
+    cleanupRunning.value = false
+    cleanupLoading.value = false
+  }
+}
+
+async function cleanupAccountRun() {
+  const n = cleanupStat.value?.to_delete || 0
+  if (!n) {
+    ElMessage.info('统计结果为 0，没有可删除的动态。请检查规则勾选或先点「统计」')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将删除该账号 ${n} 条转发动态，不可恢复！确定执行？`,
+      '危险操作确认', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' })
+  } catch (e) { return }
+  cleanupRunning.value = true
+  cleanupLoading.value = true
+  cleanupStage.value = '删除中...'
+  cleanupProgress.value = { running: true, stage: '删除中...', candidates: n, deleted: 0 }
+  try {
+    await cleanupApi.accountDynamics(cleanupAcc.value.id, {
+      ...cleanupPayload(), dry_run: false,
+      items: cleanupStat.value.items || [],   // 复用统计结果，立即开始删除
+    })
+    const result = await pollCleanupProgress(cleanupAcc.value.id)
+    if (result?.error) {
+      ElMessage.warning(result.error)
+    } else {
+      cleanupStat.value = { ...result, dry_run: false }
+      ElMessage.success(`已删除 ${result.deleted} 条（失败 ${result.failed}）`)
+    }
+  } catch (e) {
+    if (e?.response?.data?.detail) ElMessage.warning(e.response.data.detail)
+    else if (!/超时|拦截/.test(String(e))) ElMessage.error('删除失败')
+  } finally {
+    cleanupRunning.value = false
+    cleanupLoading.value = false
+  }
 }
 
 // ---------- 账号未读徽标（头像上显示，独立于私信检测白名单） ----------
@@ -497,6 +745,8 @@ onUnmounted(() => {
 
 <style scoped>
 .mt { margin-top: 16px; }
+.rule-item { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; line-height: 1.6; }
+.rule-item .el-checkbox { margin-right: 2px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .user-cell { display: flex; align-items: center; gap: 10px; }
 .uname { font-weight: 600; display: flex; align-items: center; gap: 6px; }

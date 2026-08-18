@@ -35,15 +35,30 @@ def auto_stop(db: Session = Depends(get_db)):
 @router.get("/progress")
 def auto_progress(db: Session = Depends(get_db)):
     d = dict(auto_manager.progress)
-    # 实时计算待参与数：自动扫描（定时/手动/单用户）入库后立即反映，
-    # 不依赖主循环每轮开头的快照（轮次间隔可能很长）
+    # 实时计算可参与数：对齐参与候选池口径（至少一个 active 账号未参与过、
+    # 未结束的活动；已 participated 但新账号可补参与的也计入），
+    # 自动扫描（定时/手动/单用户）入库后立即反映，不依赖主循环快照
     try:
+        import json as _json
         now = datetime.now()
-        d["pending_count"] = db.query(models.Activity).filter(
-            models.Activity.status == "pending",
+        active_ids = [a.id for a in db.query(models.Account)
+                      .filter_by(status="active").all()]
+        rows = db.query(models.Activity).filter(
+            models.Activity.status.in_(["pending", "participated"]),
             (models.Activity.end_time.is_(None))
             | (models.Activity.end_time > now),
-        ).count()
+        ).all()
+        cnt = 0
+        for act in rows:
+            try:
+                accs = _json.loads(act.participated_accounts or "[]")
+                if not isinstance(accs, list):
+                    accs = []
+            except Exception:
+                accs = []
+            if not active_ids or any(aid not in accs for aid in active_ids):
+                cnt += 1
+        d["pending_count"] = cnt
     except Exception:
         pass
     # 附加职业号发现状态（自动模式冷却期运行、轮次开始暂停）

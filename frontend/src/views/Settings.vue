@@ -92,6 +92,25 @@
                 <span class="hint" style="margin-left: 8px">监控用户连续 N 次扫描无抽奖活动 → 标记失效剔除；0 = 不启用</span>
               </el-form-item>
 
+              <el-divider content-position="left">转发动态清理（已开奖未中奖自动删除）</el-divider>
+              <el-form-item label="启用清理">
+                <el-switch v-model="form.cleanup_enabled" />
+                <span class="hint" style="margin-left: 8px">官方抽奖开奖后未中奖 → 直接删；其他活动开奖超过 N 天才删（先预览确认）</span>
+              </el-form-item>
+              <el-form-item label="开奖超过（天）">
+                <el-input-number v-model="form.cleanup_end_days" :min="0" :max="365" />
+                <span class="hint" style="margin-left: 8px">非官方抽奖：开奖日期距今超过 N 天才清理；0 = 不限（官方抽奖不受此限制）</span>
+              </el-form-item>
+              <el-form-item label="自动清理间隔（分钟）">
+                <el-input-number v-model="form.cleanup_auto_interval_min" :min="0" :max="1440" />
+                <span class="hint" style="margin-left: 8px">0 = 仅手动触发；开启后按间隔自动清理</span>
+              </el-form-item>
+              <el-form-item label="立即清理">
+                <el-button type="warning" plain :loading="cleanupLoading" @click="cleanupPreview">预览（统计将删除）</el-button>
+                <el-button type="danger" plain :disabled="cleanupLoading" @click="cleanupRun">执行删除</el-button>
+                <span class="hint" style="margin-left: 8px">执行前先预览；删除不可恢复！</span>
+              </el-form-item>
+
               <el-divider content-position="left">参与设置</el-divider>
               <el-form-item label="参与文案模式">
                 <el-radio-group v-model="form.participate_text_mode">
@@ -201,12 +220,13 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, Download, Connection, Setting } from '@element-plus/icons-vue'
-import { settingApi } from '../api'
+import { settingApi, cleanupApi } from '../api'
 
 const tab = ref('llm')
 const form = reactive({})
+const cleanupLoading = ref(false)
 const scheduleTime = ref('10:00')
 const dmCheckStart = ref('08:00')
 const dmCheckEnd = ref('22:00')
@@ -286,7 +306,15 @@ async function testLlm() {
       system_prompt: override.system_prompt,
       message: '你好，请回复：连接成功',
     })
-    if (res.ok) ElMessage.success(`连接成功：${res.reply?.slice(0, 60)}`)
+    if (res.ok) {
+      ElMessage.success(`连接成功：${res.reply?.slice(0, 60)}`)
+      // 自动回填模型最大输出 tokens（探测值或内置映射），并保存到当前模型覆盖
+      if (res.suggested_max_tokens) {
+        override.max_tokens = res.suggested_max_tokens
+        try { await saveModelOverride() } catch (e) { /* 保存失败不阻塞提示 */ }
+        ElMessage.success(`已自动回填最大输出 tokens：${res.suggested_max_tokens}`)
+      }
+    }
     else ElMessage.error(res.message || '连接失败')
   } finally { testing.value = false }
 }
@@ -325,6 +353,9 @@ async function save() {
     watch_backfill_days: form.watch_backfill_days,
     auto_pro_scan_enabled: form.auto_pro_scan_enabled,
     monitor_empty_scan_remove: form.monitor_empty_scan_remove,
+    cleanup_enabled: form.cleanup_enabled,
+    cleanup_end_days: form.cleanup_end_days,
+    cleanup_auto_interval_min: form.cleanup_auto_interval_min,
     participate_text: form.participate_text,
     participate_text_mode: form.participate_text_mode,
     participate_batch: form.participate_batch,
@@ -344,6 +375,33 @@ async function save() {
   }
   await settingApi.save(payload)
   ElMessage.success('设置已保存')
+}
+
+// ---------- 转发动态清理（已开奖未中奖删除） ----------
+async function cleanupPreview() {
+  cleanupLoading.value = true
+  try {
+    const s = await cleanupApi.preview()
+    if (s.error) return ElMessage.warning(s.error)
+    ElMessageBox.alert(
+      `检查 ${s.checked} 个已开奖转发\n中奖保留 ${s.won_keep} · 未开奖/无名单 ${s.no_notice + s.not_ended} · 将删除 ${s.to_delete} 条` +
+      (s.items && s.items.length ? `\n\n示例：\n${s.items.slice(0, 8).map(i => `· ${i.title}（${i.reason}）`).join('\n')}` : ''),
+      '清理预览', { confirmButtonText: '知道了', type: 'warning' })
+  } finally { cleanupLoading.value = false }
+}
+
+async function cleanupRun() {
+  try {
+    await ElMessageBox.confirm(
+      '将删除所有「已开奖且未中奖」的转发动态，删除后不可恢复！确定执行？',
+      '危险操作确认', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' })
+  } catch (e) { return }
+  cleanupLoading.value = true
+  try {
+    const s = await cleanupApi.run()
+    if (s.error) return ElMessage.warning(s.error)
+    ElMessage.success(`已删除 ${s.deleted} 条已开奖未中奖的转发动态（检查 ${s.checked}）`)
+  } finally { cleanupLoading.value = false }
 }
 
 onMounted(loadSettings)

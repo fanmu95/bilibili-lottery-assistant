@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from .database import Base, engine, SessionLocal, get_db
 from . import models
-from .routers import accounts, activities, auto, logs, monitor, scan, settings
+from .routers import accounts, activities, auto, cleanup, logs, monitor, scan, settings
 from .services import bili_client
 
 Base.metadata.create_all(bind=engine)
@@ -69,6 +69,7 @@ app.include_router(logs.router)
 app.include_router(settings.router)
 app.include_router(scan.router)
 app.include_router(auto.router)
+app.include_router(cleanup.router)
 
 
 @app.get("/api/health")
@@ -169,7 +170,8 @@ def on_startup():
         try:
             from sqlalchemy import text
             _new_cols = {
-                "activities": [("pro_discovered_at", "DATETIME")],
+                "activities": [("pro_discovered_at", "DATETIME"),
+                               ("cleanup_deleted_at", "DATETIME")],
                 "monitor_users": [("empty_scan_count", "INTEGER"),
                                   ("scanned_count", "INTEGER")],
             }

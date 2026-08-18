@@ -20,6 +20,7 @@ from datetime import datetime
 
 from ..database import SessionLocal
 from .. import models
+from . import bili_actions, bili_client
 
 _participating: dict = {}
 _queue: list = []          # 待执行任务 [(activity_id, account_id), ...]
@@ -298,12 +299,18 @@ def _run(activity_id: int, account_id: int):
             try:
                 detail = act_client.get_dynamic_detail(act.activity_id)
                 rid, ctype = "", 17
+                reserve_info = None
                 if detail:
                     rid, ctype = bili_actions.extract_comment_oid(detail)
+                    reserve_info = bili_client.BiliClient.extract_reserve(detail)
+                if reserve_info:
+                    # 预约类动态：预约 + 三连都做，预约前置
+                    steps = ("reserve",) + steps
                 exec_res = bili_actions.execute_participation(
                     act_client, dynamic_id=act.activity_id,
                     sender_uid=act.author_uid or "", comment_text=comment_text,
                     comment_rid=rid, comment_type=ctype, steps=steps,
+                    reserve_info=reserve_info,
                     on_step=on_step)
                 action_results = exec_res.get("results", [])
                 action_errors = exec_res.get("errors", [])

@@ -97,7 +97,28 @@ PARSE_BATCH_SYSTEM_PROMPT = (
 )
 
 
-# ---- 第二阶段：复核/纠错（初次解析后异步执行，提升奖品/结束时间准确率）----
+def fix_end_time_year(end_time: str, desc: str = "") -> str:
+    """end_time 年份兜底校验：正文没写具体年份时，年份强制为当年。
+
+    背景：LLM 常把无年份日期（「8月7日」）补成下一年（2027-08-07），
+    违反提示词「缺年份按当年补全」。本函数在落库前做代码层兜底：
+      - 正文含「20XX年」字样 → 以正文年份为准（保留真·长期活动）
+      - 正文无年份 → 年份强制替换为当前年份
+    """
+    if not end_time or len(end_time) < 10:
+        return end_time
+    try:
+        m = re.search(r"(20\d{2})\s*年", desc or "")
+        if m:
+            year = m.group(1)
+            return year + end_time[4:] if not end_time.startswith(year) else end_time
+        now_year = str(datetime.now().year)
+        return now_year + end_time[4:] if not end_time.startswith(now_year) else end_time
+    except Exception:
+        return end_time
+
+
+# ---- 阶段二：复核/纠错（初次解析后异步执行，提升奖品/结束时间准确率）----
 # 输入：动态原文 + 机器初判结果；要求逐项核查纠错，正文无依据的字段必须输出空（不保留猜测）。
 PARSE_REVIEW_PROMPT = (
     "你是哔哩哔哩抽奖活动解析复核助手。下面给出每条动态的**原文**和机器**初判结果**。"
@@ -187,14 +208,22 @@ def review_parse_verdicts_batch(base_url: str, api_key: str, model: str,
 
 
 def list_models(base_url: str, api_key: str = "") -> list:
-    """获取模型列表，返回 [{"id": ..., "owned_by": ...}]"""
+    """获取模型列表，返回 [{"id": ..., "owned_by": ..., "max_tokens": ...}]"""
     url = base_url.rstrip("/") + "/models"
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     r = requests.get(url, headers=headers, timeout=15)
     r.raise_for_status()
     data = r.json()
     models = data.get("data", [])
-    return [{"id": m.get("id", ""), "owned_by": m.get("owned_by", "")} for m in models]
+    out = []
+    for m in models:
+        # 部分服务商在 /models 元数据里直接给输出上限
+        mt = (m.get("max_tokens") or m.get("max_completion_tokens")
+              or m.get("max_output_tokens") or m.get("output_token_limit")
+              or m.get("context_window") or 0)
+        out.append({"id": m.get("id", ""), "owned_by": m.get("owned_by", ""),
+                    "max_tokens": int(mt) if mt else 0})
+    return out
 
 
 # ---- 模型输出上限自动解析 ----

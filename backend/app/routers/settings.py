@@ -49,6 +49,12 @@ DEFAULT_SETTINGS = {
     "skip_charge_lottery": True,             # 充电抽奖自动跳过（对齐 bilibinggo）
     "auto_pro_scan_enabled": True,           # 自动模式开关：轮次冷却期是否扫描职业号（错峰执行）
     "monitor_empty_scan_remove": 3,          # 监控用户连续 N 次扫描无活动 → 标记失效剔除（0=不启用）
+    # ---- 转发动态清理（按结束日期，白名单保护）----
+    "cleanup_enabled": False,                # 清理开关：结束日期超 N 天的转发活动自动删除
+    "cleanup_end_days": 7,                   # 结束日期距今超过 N 天才清理（此期间自行检查中奖，0=结束即可清理）
+    "cleanup_whitelist": "[]",               # 白名单：中奖动态 id 列表（JSON 数组），清理时跳过不删
+    "cleanup_scan_gap": 1.0,                 # 翻页间隔（秒）：查找转发动态时每页间隔，防风控
+    "cleanup_auto_interval_min": 0,          # 自动清理间隔（分钟，0=仅手动触发）
     # ---- 防风控 ----
     "daily_participate_limit": 100,          # 每账号每日参与上限（防被标记）
     "action_interval_min": 1.5,              # 动作最小间隔（秒，随机抖动）
@@ -155,14 +161,30 @@ def fetch_llm_models(body: schemas.LLMConfigRequest,
 
 @router.post("/llm/test")
 def test_llm(body: schemas.LLMConfigRequest, db: Session = Depends(get_db)):
-    """测试连接：发送一条对话"""
+    """测试连接：发送一条对话；同时探测模型最大输出 tokens 返回建议值"""
+    suggested = None
+    try:
+        # ① /models 元数据探测（部分服务商直接给输出上限）
+        try:
+            for m in llm_client.list_models(body.base_url, body.api_key):
+                if m.get("id") == body.model and m.get("max_tokens"):
+                    suggested = int(m["max_tokens"])
+                    break
+        except Exception:
+            pass
+        # ② 内置模型名映射兜底（deepseek 系 65536 / glm 32768 / qwen 8192 等）
+        if not suggested:
+            suggested = llm_client.resolve_max_tokens(body.model)
+    except Exception:
+        suggested = None
     try:
         reply = llm_client.chat(
             body.base_url, body.api_key, body.model,
             [{"role": "user", "content": body.message}],
             temperature=body.temperature, max_tokens=body.max_tokens, top_p=body.top_p)
         add_log(db, "success", "settings", f"LLM 测试连接成功：{body.model}")
-        return {"ok": True, "reply": reply}
+        return {"ok": True, "reply": reply,
+                "suggested_max_tokens": suggested}
     except Exception as e:
         add_log(db, "error", "settings", f"LLM 测试连接失败：{e}")
         return {"ok": False, "message": str(e)}

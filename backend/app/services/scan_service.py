@@ -18,6 +18,44 @@ from ..database import SessionLocal
 from .. import models
 from . import bili_client
 
+# ---- 断点续扫：已完成扫描的用户 uid 集合（持久化到 setting）----
+RESUME_SETTING_KEY = "scan_resume_done"
+
+
+def load_resume_done(db) -> set:
+    """读取断点：已完成扫描的用户 uid 集合"""
+    try:
+        r = db.query(models.Setting).filter_by(key=RESUME_SETTING_KEY).first()
+        if not r or not r.value:
+            return set()
+        return {str(x) for x in json.loads(r.value) if str(x)}
+    except Exception:
+        return set()
+
+
+def save_resume_done(db, uids: set):
+    """写入断点（已完成用户 uid 集合，实时更新）"""
+    try:
+        r = db.query(models.Setting).filter_by(key=RESUME_SETTING_KEY).first()
+        if not r:
+            r = models.Setting(key=RESUME_SETTING_KEY, value="[]")
+            db.add(r)
+        r.value = json.dumps([str(x) for x in uids])
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def clear_resume_done(db):
+    """清空断点（扫描自然完成 / 手动重扫全部）"""
+    try:
+        r = db.query(models.Setting).filter_by(key=RESUME_SETTING_KEY).first()
+        if r:
+            r.value = "[]"
+            db.commit()
+    except Exception:
+        db.rollback()
+
 SCAN_SLEEP = 0.6      # 每个用户之间的处理间隔（风控友好）
 LLM_WORKERS = 3       # LLM 批量解析并行线程数（批间并行）
 LLM_BATCH = 5        # 每批 LLM 请求解析的动态条数（思考模式下批次调小，频率翻倍防截断）
@@ -44,6 +82,7 @@ class ScanManager:
         self._lock = threading.Lock()
         self._thread = None
         self._stop = False
+        self._generation = 0   # 线程代际：旧线程收尾时不覆盖新线程状态
         self.state = {
             "running": False,
             "total": 0,
@@ -86,10 +125,18 @@ class ScanManager:
                 pass
         return data
 
-    def start(self, user_ids=None):
+    def start(self, user_ids=None, reset=False):
         with self._lock:
             if self.state["running"]:
                 return False, "扫描已在进行中"
+            if self._thread and self._thread.is_alive():
+                return False, "上次扫描仍在退出中，请稍候几秒再试"
+            if reset:
+                db = SessionLocal()
+                try:
+                    clear_resume_done(db)
+                finally:
+                    db.close()
             self._stop = False
             self.state.update(
                 running=True, total=0, done=0, current_user="", found=0,
@@ -97,17 +144,33 @@ class ScanManager:
                 finished_at=None,
                 llm_enabled=False, llm_done=0, llm_total=0, llm_success=0,
                 llm_fail=0, llm_image=0, llm_current="")
-        self._thread = threading.Thread(target=self._run, args=(user_ids,), daemon=True)
+        with self._lock:
+            self._generation += 1
+            gen = self._generation
+        self._thread = threading.Thread(target=self._run, args=(user_ids, gen), daemon=True)
         self._thread.start()
         return True, "扫描已启动"
+
+    def reset_resume(self):
+        """清空断点（重扫全部）"""
+        db = SessionLocal()
+        try:
+            clear_resume_done(db)
+        finally:
+            db.close()
 
     def stop(self):
         with self._lock:
             self._stop = True
+            # 乐观置位：界面立即恢复可操作（后台线程收到 _stop 后尽快退出，
+            # 收尾时不再覆盖本状态）
+            if self.state["running"]:
+                self.state["running"] = False
+                self.state["message"] = "扫描已停止"
 
     # ------------------------------------------------------------------
 
-    def _run(self, user_ids):
+    def _run(self, user_ids, gen: int = None):
         from ..routers.logs import add_log
         from . import llm_client
         db = SessionLocal()
@@ -142,10 +205,23 @@ class ScanManager:
                 query = query.filter(models.MonitorUser.id.in_(user_ids))
             users = query.all()
 
+            # ---- 断点续扫：跳过上次已完成的用户 ----
+            resume_done = load_resume_done(db)
+            if resume_done and not user_ids:
+                before = len(users)
+                users = [u for u in users if str(u.uid) not in resume_done]
+                skipped = before - len(users)
+                if skipped:
+                    add_log(db, "info", "scan",
+                            f"断点续扫：跳过上次已完成的 {skipped} 个用户")
+
             total = len(users)
             with self._lock:
                 self.state["total"] = total
-                self.state["message"] = f"共 {total} 个监控用户待扫描"
+                self.state["message"] = (
+                    f"从断点继续，剩余 {total} 个用户待扫描"
+                    if resume_done and not user_ids
+                    else f"共 {total} 个监控用户待扫描")
 
             all_candidates = []
             # ---- 流水线共享状态（扫描主线程 + LLM 解析 worker 跨线程共享） ----
@@ -200,8 +276,12 @@ class ScanManager:
                               if notice else 0) or (verdict or {}).get("winner_count") or 0
                     end_time = (bili_client.BiliClient.notice_end_time(notice)
                                 if notice else None) \
-                        or _parse_end_time((verdict or {}).get("end_time")) \
-                        or cand.get("end_time")
+                        or _parse_end_time(llm_client.fix_end_time_year(
+                            str((verdict or {}).get("end_time") or ""),
+                            desc or cand.get("desc", ""))) \
+                        or _parse_end_time(llm_client.fix_end_time_year(
+                            str(cand.get("end_time") or ""),
+                            desc or cand.get("desc", "")))
                     title = (verdict or {}).get("title") or cand["title"]
                     desc = (verdict or {}).get("desc") or cand.get("desc", "")
                     # 已结束的活动直接标记 ended（不在待参与中显示、不可参与）：
@@ -308,7 +388,8 @@ class ScanManager:
                         items = client.get_space_dynamics(
                             user.uid, username=user.username,
                             source_type=user.monitor_type,
-                            since_days=backfill_days)
+                            since_days=backfill_days,
+                            stop_callback=lambda: self._stop)
                         for it in items:
                             it["_user"] = user
                         all_candidates.extend(items)
@@ -319,6 +400,10 @@ class ScanManager:
                     except Exception as e:
                         db.rollback()
                         add_log(db, "error", "scan", f"扫描失败 {user.username}: {e}")
+                    # 断点续扫：该用户处理完成（无论成败），实时记录到断点
+                    if not user_ids:
+                        resume_done.add(str(user.uid))
+                        save_resume_done(db, resume_done)
                     with self._lock:
                         self.state["done"] = idx
                         self.state["found"] = new_found
@@ -371,7 +456,7 @@ class ScanManager:
                             except Exception:
                                 pass
                     # 实时回收已完成的解析任务（扫描中 found 实时更新）
-                    if pending_futures:
+                    if pending_futures and not self._stop:
                         done_set, _ = wait(pending_futures, timeout=0)
                         for fut in list(done_set):
                             try:
@@ -386,19 +471,21 @@ class ScanManager:
                     time.sleep(SCAN_SLEEP)
 
                 # ---- 扫描完成，等待所有 LLM 解析任务结束 ----
-                for fut in as_completed(pending_futures):
-                    try:
-                        _added, _bkf = fut.result()
-                        new_found += _added
-                        backfilled += _bkf
-                    except Exception:
-                        pass
-                    with self._lock:
-                        self.state["found"] = new_found
-                        if self.state["llm_total"]:
-                            self.state["message"] = (
-                                f"LLM 解析 {self.state['llm_done']}/"
-                                f"{self.state['llm_total']}，已入库 {new_found} 个活动")
+                # 已停止：不再等待后台解析（daemon 线程自行结束），立即收尾
+                if not self._stop:
+                    for fut in as_completed(pending_futures):
+                        try:
+                            _added, _bkf = fut.result()
+                            new_found += _added
+                            backfilled += _bkf
+                        except Exception:
+                            pass
+                        with self._lock:
+                            self.state["found"] = new_found
+                            if self.state["llm_total"]:
+                                self.state["message"] = (
+                                    f"LLM 解析 {self.state['llm_done']}/"
+                                    f"{self.state['llm_total']}，已入库 {new_found} 个活动")
 
             # ---- 剩余候选兜底入库（LLM 未启用 / 解析失败回退关键词初筛） ----
             # 包含预筛跳过的已存在活动（notice 回填仍生效）
@@ -409,6 +496,19 @@ class ScanManager:
             backfilled += _bkf
             with self._lock:
                 self.state["found"] += new_found
+
+            # ---- 回填各监控用户「发现活动数」（scanned_count）：按 Activity.source_uid 实时统计 ----
+            try:
+                from sqlalchemy import func as _func
+                cnt_rows = (db.query(models.Activity.source_uid,
+                                     _func.count(models.Activity.id))
+                            .group_by(models.Activity.source_uid).all())
+                cnt_map = {str(uid): n for uid, n in cnt_rows}
+                for mu in db.query(models.MonitorUser).all():
+                    mu.scanned_count = cnt_map.get(str(mu.uid), 0)
+                db.commit()
+            except Exception:
+                db.rollback()
 
             # ---- 扫描结束：最终兜底补齐评论池（独立评论生成，不阻塞扫描） ----
             # 扫描时 LLM 只做活动解析，不再生成评论；
@@ -429,10 +529,17 @@ class ScanManager:
                             f"（抽奖 {self.state['llm_success']}，非抽奖 {self.state['llm_fail']}）")
             backfill_note = f"，回填 {backfilled} 条缺失字段" if backfilled else ""
             with self._lock:
-                self.state["running"] = False
-                self.state["message"] = (f"扫描完成，新增 {new_found} 个活动{llm_note}"
-                                         f"{backfill_note}{comment_note}"
-                                         if not self._stop else "扫描已停止")
+                # 旧线程收尾：若已有更新的扫描线程接手（代际不同），不覆盖其状态
+                if gen is not None and gen != self._generation:
+                    pass
+                else:
+                    # 自然完成（非终止）：清空断点，下次从头扫
+                    if not self._stop and not user_ids:
+                        clear_resume_done(db)
+                    self.state["running"] = False
+                    self.state["message"] = (f"扫描完成，新增 {new_found} 个活动{llm_note}"
+                                             f"{backfill_note}{comment_note}"
+                                             if not self._stop else "扫描已停止")
                 self.state["current_user"] = ""
                 self.state["finished_at"] = datetime.now().strftime("%H:%M:%S")
             add_log(db, "info", "scan",
@@ -441,8 +548,11 @@ class ScanManager:
         except Exception as e:
             add_log(db, "error", "scan", f"扫描任务异常: {e}")
             with self._lock:
-                self.state["running"] = False
-                self.state["message"] = f"扫描异常: {e}"
+                if gen is not None and gen != self._generation:
+                    pass
+                else:
+                    self.state["running"] = False
+                    self.state["message"] = f"扫描异常: {e}"
         finally:
             db.close()
 
@@ -572,7 +682,14 @@ def scan_single_user(db, user) -> int:
         ))
         found += 1
     user.last_scanned_at = datetime.now()
-    user.scanned_count = (user.scanned_count or 0) + found   # 累计扫描发现活动数（质量指标）
+    # 发现活动数：按 Activity.source_uid 实时统计（覆盖，避免重复扫描累加虚高）
+    try:
+        from sqlalchemy import func as _func
+        _cnt = (db.query(_func.count(models.Activity.id))
+                .filter(models.Activity.source_uid == str(user.uid)).scalar()) or 0
+        user.scanned_count = _cnt
+    except Exception:
+        pass
     # 质量剔除（通用，含职业号）：连续扫描无抽奖活动 → 计数累加，达到设置阈值
     # 标记失效（inactive）不再参与扫描——避免动态变化/误判的无效用户长期占用监控资源
     remove_after = int(settings_map.get("monitor_empty_scan_remove", PRO_EMPTY_LIMIT) or 0)

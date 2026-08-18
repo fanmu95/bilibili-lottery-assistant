@@ -318,9 +318,11 @@ class BiliClient:
 
     def get_space_dynamics(self, uid, username: str = "", source_type: str = "repost",
                            max_pages: int = 8, since_days: int = 10,
-                           only_lottery: bool = True) -> list:
+                           only_lottery: bool = True,
+                           stop_callback=None) -> list:
         """抓取监控用户的抽奖活动（两阶段：收集动态 id -> 详情取正文）。
 
+        stop_callback：可选回调，每页/每条处理前检查（True=请求停止，提前返回）。
         source_type=repost（默认，对齐 bilibinggo）：监控用户**转发**的抽奖活动，
         只收集 DYNAMIC_TYPE_FORWARD 的转发原动态 id（author 为原 UP 主）。
         source_type=publish：监控用户**自己发布**的抽奖活动，收集用户自己发布的
@@ -339,6 +341,8 @@ class BiliClient:
         try:
             offset = ""
             for _ in range(max_pages):
+                if stop_callback and stop_callback():
+                    return []
                 # WBI 签名（对齐 bilibinggo：B 站逐步要求 w_rid，带上有备无患）
                 feed_params = self.wbi_sign({
                     "host_mid": uid, "offset": offset,
@@ -373,6 +377,8 @@ class BiliClient:
                     break
                 reached_older = False
                 for item in items:
+                    if stop_callback and stop_callback():
+                        return []
                     if not isinstance(item, dict):
                         continue
                     itype = item.get("type") or ""
@@ -512,6 +518,199 @@ class BiliClient:
                 "is_lottery": is_lottery,
             })
         return out[:60]
+
+    def find_my_repost_id(self, uid: str, source_dynamic_id: str,
+                          max_pages: int = 4, gap: float = 0.0) -> str:
+        """在自己空间动态里查找「转发了指定源动态」的转发动态 id。
+
+        场景：清理已开奖未中奖的转发时，删除接口需要**转发动态自己的 id**
+        （rm_dynamic），而库里存的是源动态 id（activity_id）。
+        gap：翻页间隔秒数（防风控）。
+        返回转发动态 id；找不到返回空字符串。
+        """
+        try:
+            offset = ""
+            for _i in range(max_pages):
+                if gap and _i > 0:
+                    time.sleep(gap)
+                params = self.wbi_sign({
+                    "host_mid": uid, "offset": offset,
+                    "timezone_offset": "-480", "platform": "web"})
+                d = None
+                for _retry in range(3):
+                    r = self.session.get(
+                        f"{BASE}/x/polymer/web-dynamic/v1/feed/space",
+                        params=params, timeout=10)
+                    d = r.json()
+                    if d.get("code") == 0:
+                        break
+                    if d.get("code") in (-352, -412):
+                        time.sleep(60)
+                    else:
+                        break
+                if not d or d.get("code") != 0:
+                    break
+                data = d.get("data") or {}
+                items = data.get("items") or []
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    if (item.get("type") == "DYNAMIC_TYPE_FORWARD"
+                            and str((item.get("orig") or {}).get("id_str") or "")
+                            == str(source_dynamic_id)):
+                        rid = str(item.get("id_str") or "")
+                        if rid:
+                            return rid
+                if not data.get("has_more"):
+                    break
+                offset = data.get("offset", "")
+            return ""
+        except Exception:
+            return ""
+
+    def scan_my_forwards(self, uid: str, max_pages: int = 100, gap: float = 0.0,
+                         on_page=None) -> list:
+        """扫描自己空间里的全部转发动态。
+
+        返回 [{repost_id(转发动态id), orig_id(源动态id), pub_ts}]。
+        供账号维度清理：检查账号转发过的抽奖动态，已开奖未中奖的删除。
+        默认翻 100 页（约 1200 条），覆盖长历史账号。
+        on_page：每翻一页回调（参数为当前页数，用于进度展示）。
+        """
+        out = []
+        seen = set()
+        try:
+            offset = ""
+            for _pi in range(max_pages):
+                if gap and _pi > 0:
+                    time.sleep(gap)
+                if on_page:
+                    try:
+                        on_page(_pi + 1)
+                    except Exception:
+                        pass
+                params = self.wbi_sign({
+                    "host_mid": uid, "offset": offset,
+                    "timezone_offset": "-480", "platform": "web"})
+                d = None
+                # 风控（-352/-412）冷却重试：等待 60s 重试当前页（最多 2 次）
+                for _retry in range(3):
+                    r = self.session.get(
+                        f"{BASE}/x/polymer/web-dynamic/v1/feed/space",
+                        params=params, timeout=10)
+                    d = r.json()
+                    if d.get("code") == 0:
+                        break
+                    if d.get("code") in (-352, -412):
+                        time.sleep(60)
+                    else:
+                        break
+                if not d or d.get("code") != 0:
+                    break
+                data = d.get("data") or {}
+                items = data.get("items") or []
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get("type") != "DYNAMIC_TYPE_FORWARD":
+                        continue
+                    rid = str(item.get("id_str") or "")
+                    orig_id = str((item.get("orig") or {}).get("id_str") or "")
+                    if not rid or rid in seen:
+                        continue
+                    seen.add(rid)
+                    out.append({
+                        "repost_id": rid, "orig_id": orig_id,
+                        "pub_ts": self._extract_feed_pub_ts(item) or 0})
+                if not data.get("has_more"):
+                    break
+                offset = data.get("offset", "")
+            return out
+        except Exception:
+            return out
+
+    @staticmethod
+    def extract_reserve(detail: dict) -> dict | None:
+        """从动态详情提取「预约」信息（直播预约/视频预约）。
+
+        存在 reserve 结构即预约类动态，返回 {rid, dynamic_id_str, reserve_total,
+        title, button_status}；无预约返回 None。
+        """
+        try:
+            additional = (((detail or {}).get("modules") or {})
+                          .get("module_dynamic") or {}).get("additional") or {}
+            reserve = additional.get("reserve") or {}
+            rid = reserve.get("rid")
+            if not rid:
+                return None
+            button = reserve.get("button") or {}
+            return {
+                "rid": str(rid),
+                "dynamic_id_str": str((detail or {}).get("id_str") or ""),
+                "reserve_total": int(reserve.get("reserve_total") or 0),
+                "title": str(reserve.get("title") or "")[:80],
+                "button_status": int(button.get("status") or 0),
+            }
+        except Exception:
+            return None
+
+    def reserve_live(self, rid: str, dynamic_id_str: str = "",
+                     reserve_total: int = 0) -> dict:
+        """点击动态内「预约」按钮（直播预约/视频预约，预约即参与抽奖）。
+
+        实测接口：POST https://api.bilibili.com/x/dynamic/feed/reserve/click?csrf=
+        JSON body: {reserve_id, cur_btn_status:1(预约), dynamic_id_str, reserve_total, spmid:""}
+        返回 {"ok": bool, "message": str, "code": int}
+        """
+        try:
+            csrf = ""
+            for ck in self.session.cookies:
+                if ck.name == "bili_jct":
+                    csrf = ck.value or ""
+                    break
+            if not csrf:
+                return {"ok": False, "message": "未登录或缺少 csrf（bili_jct）"}
+            r = self.session.post(
+                "https://api.bilibili.com/x/dynamic/feed/reserve/click",
+                params={"csrf": csrf},
+                json={
+                    "reserve_id": int(rid or 0),
+                    "cur_btn_status": 1,
+                    "dynamic_id_str": str(dynamic_id_str or ""),
+                    "reserve_total": int(reserve_total or 0),
+                    "spmid": "",
+                },
+                headers={"Referer": "https://www.bilibili.com/"},
+                timeout=12)
+            d = r.json()
+            if d.get("code") == 0:
+                toast = ((d.get("data") or {}).get("toast")) or "预约成功"
+                return {"ok": True, "message": str(toast), "code": 0}
+            return {"ok": False,
+                    "message": f"{d.get('code')}: {str(d.get('message'))[:60]}",
+                    "code": d.get("code")}
+        except Exception as e:
+            return {"ok": False, "message": str(e)[:80]}
+
+    def delete_dynamic(self, dynamic_id: str) -> bool:
+        """删除自己的一条动态/转发（rm_dynamic，需登录态 + csrf）。
+
+        返回是否删除成功（code==0）。
+        """
+        try:
+            csrf = ""
+            for ck in self.session.cookies:
+                if ck.name == "bili_jct":
+                    csrf = ck.value or ""
+                    break
+            r = self.session.post(
+                "https://api.vc.bilibili.com/dynamic_svr/v1/dynamic_svr/rm_dynamic",
+                data={"dynamic_id": str(dynamic_id), "csrf": csrf},
+                timeout=12)
+            d = r.json()
+            return d.get("code") == 0
+        except Exception:
+            return False
 
     @staticmethod
     def _extract_feed_pub_ts(item: dict) -> int | None:
