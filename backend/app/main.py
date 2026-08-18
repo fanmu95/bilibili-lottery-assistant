@@ -166,6 +166,17 @@ def on_startup():
     seed_default_settings()
     db = SessionLocal()
     try:
+        # 全新环境导入打包配置（设置项 + 监控用户；不含 cookie/API key）
+        try:
+            from .pack_config import import_pack_config
+            rst = import_pack_config(db)
+            if rst.get("settings") or rst.get("users"):
+                logs.add_log(
+                    db, "info", "system",
+                    f"已导入随包配置：设置 {rst['settings']} 项，"
+                    f"监控用户 {rst['users']} 个")
+        except Exception:
+            pass
         # 启动时补齐新增列（SQLite ALTER TABLE，列不存在才加）
         try:
             from sqlalchemy import text

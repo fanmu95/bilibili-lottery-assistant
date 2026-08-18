@@ -1,0 +1,2289 @@
+{
+ "settings": {
+  "llm_enabled": "True",
+  "llm_base_url": "https://token.sensenova.cn/v1",
+  "llm_model": "sensenova-6.8-flash-lite",
+  "llm_temperature": "0.3",
+  "llm_top_p": "1",
+  "llm_system_prompt": "你是哔哩哔哩抽奖活动解析助手。请仔细阅读用户提供的 B 站动态内容，理解这条动态在说什么，判断它是否属于抽奖/福利活动（转发、关注、评论、点赞等互动形式的抽奖送福利），并提取相关信息。\n动态表述多种多样，请依据内容自行判断、自行理解，不要只按固定词句匹配。\n只输出一个 JSON 对象，不要输出任何其他文字：\n{\"is_lottery\": true, \"title\": \"活动标题\", \"prize\": \"奖品\", \"winner_count\": 1, \"end_time\": \"2026-08-07\", \"participate_way\": \"参与方式\", \"desc\": \"动态原文\"}\n字段含义：\n- is_lottery: 这条动态是否为抽奖/福利活动（布尔值）\n- title: 动态的主题或活动标题（没有则空字符串）\n- prize: 奖品是什么（没有则空字符串）\n- winner_count: 抽奖/中奖人数（数字；无法确定则为 0）\n- end_time: 开奖或截止时间，输出 YYYY-MM-DD 或 YYYY-MM-DD HH:MM。推算规则：①正文有明确日期（含年月日/月日）→ 直接输出该日期，缺年份结合当前日期补全；②正文只有相对时间（如「下周」「本周」「月底」「N天后」「周五」「明晚」等）→ 结合当前日期（含星期几，会在输入末尾提供）推算出具体公历日期，不要留空；无法精确到具体某天时给出合理推断（如「下周抽」→ 推算为下周某天，取较近的合理日期）；③正文完全未提及任何时间 → 空字符串\n- participate_way: 参与方式，如「转发+关注」（没有则空字符串）\n- desc: 完整保留动态原文\n若 is_lottery 为 false，其余字段留空即可。",
+  "llm_model_overrides": "{\"sensenova-6.7-flash-lite\":{\"temperature\":0.5,\"top_p\":1,\"max_tokens\":65536,\"system_prompt\":\"你是哔哩哔哩抽奖活动解析助手。请仔细阅读用户提供的 B 站动态内容，理解这条动态在说什么，判断它是否属于抽奖/福利活动（转发、关注、评论、点赞等互动形式的抽奖送福利），并提取相关信息。\\n动态表述多种多样，请依据内容自行判断、自行理解，不要只按固定词句匹配。\\n只输出一个 JSON 对象，不要输出任何其他文字：\\n{\\\"is_lottery\\\": true, \\\"title\\\": \\\"活动标题\\\", \\\"prize\\\": \\\"奖品\\\", \\\"winner_count\\\": 1, \\\"end_time\\\": \\\"2026-08-07\\\", \\\"participate_way\\\": \\\"参与方式\\\", \\\"desc\\\": \\\"动态原文\\\"}\\n字段含义：\\n- is_lottery: 这条动态是否为抽奖/福利活动（布尔值）\\n- title: 动态的主题或活动标题（没有则空字符串）\\n- prize: 奖品是什么（没有则空字符串）\\n- winner_count: 抽奖/中奖人数（数字；无法确定则为 0）\\n- end_time: 开奖或截止时间，输出 YYYY-MM-DD 或 YYYY-MM-DD HH:MM。推算规则：①正文有明确日期（含年月日/月日）→ 直接输出该日期，缺年份结合当前日期补全；②正文只有相对时间（如「下周」「本周」「月底」「N天后」「周五」「明晚」等）→ 结合当前日期（含星期几，会在输入末尾提供）推算出具体公历日期，不要留空；无法精确到具体某天时给出合理推断（如「下周抽」→ 推算为下周某天，取较近的合理日期）；③正文完全未提及任何时间 → 空字符串\\n- participate_way: 参与方式，如「转发+关注」（没有则空字符串）\\n- desc: 完整保留动态原文\\n若 is_lottery 为 false，其余字段留空即可。\"},\"deepseek-v4-flash\":{\"temperature\":0.3,\"top_p\":1,\"max_tokens\":65536,\"system_prompt\":\"你是哔哩哔哩抽奖活动解析助手。请仔细阅读用户提供的 B 站动态内容，理解这条动态在说什么，判断它是否属于抽奖/福利活动（转发、关注、评论、点赞等互动形式的抽奖送福利），并提取相关信息。\\n动态表述多种多样，请依据内容自行判断、自行理解，不要只按固定词句匹配。\\n只输出一个 JSON 对象，不要输出任何其他文字：\\n{\\\"is_lottery\\\": true, \\\"title\\\": \\\"活动标题\\\", \\\"prize\\\": \\\"奖品\\\", \\\"winner_count\\\": 1, \\\"end_time\\\": \\\"2026-08-07\\\", \\\"participate_way\\\": \\\"参与方式\\\", \\\"desc\\\": \\\"动态原文\\\"}\\n字段含义：\\n- is_lottery: 这条动态是否为抽奖/福利活动（布尔值）\\n- title: 动态的主题或活动标题（没有则空字符串）\\n- prize: 奖品是什么（没有则空字符串）\\n- winner_count: 抽奖/中奖人数（数字；无法确定则为 0）\\n- end_time: 开奖或截止时间，输出 YYYY-MM-DD 或 YYYY-MM-DD HH:MM。推算规则：①正文有明确日期（含年月日/月日）→ 直接输出该日期，缺年份结合当前日期补全；②正文只有相对时间（如「下周」「本周」「月底」「N天后」「周五」「明晚」等）→ 结合当前日期（含星期几，会在输入末尾提供）推算出具体公历日期，不要留空；无法精确到具体某天时给出合理推断（如「下周抽」→ 推算为下周某天，取较近的合理日期）；③正文完全未提及任何时间 → 空字符串\\n- participate_way: 参与方式，如「转发+关注」（没有则空字符串）\\n- desc: 完整保留动态原文\\n若 is_lottery 为 false，其余字段留空即可。\"},\"sensenova-6.8-flash-lite\":{\"temperature\":0.3,\"top_p\":1,\"max_tokens\":65536,\"system_prompt\":\"你是哔哩哔哩抽奖活动解析助手。请仔细阅读用户提供的 B 站动态内容，理解这条动态在说什么，判断它是否属于抽奖/福利活动（转发、关注、评论、点赞等互动形式的抽奖送福利），并提取相关信息。\\n动态表述多种多样，请依据内容自行判断、自行理解，不要只按固定词句匹配。\\n只输出一个 JSON 对象，不要输出任何其他文字：\\n{\\\"is_lottery\\\": true, \\\"title\\\": \\\"活动标题\\\", \\\"prize\\\": \\\"奖品\\\", \\\"winner_count\\\": 1, \\\"end_time\\\": \\\"2026-08-07\\\", \\\"participate_way\\\": \\\"参与方式\\\", \\\"desc\\\": \\\"动态原文\\\"}\\n字段含义：\\n- is_lottery: 这条动态是否为抽奖/福利活动（布尔值）\\n- title: 动态的主题或活动标题（没有则空字符串）\\n- prize: 奖品是什么（没有则空字符串）\\n- winner_count: 抽奖/中奖人数（数字；无法确定则为 0）\\n- end_time: 开奖或截止时间，输出 YYYY-MM-DD 或 YYYY-MM-DD HH:MM。推算规则：①正文有明确日期（含年月日/月日）→ 直接输出该日期，缺年份结合当前日期补全；②正文只有相对时间（如「下周」「本周」「月底」「N天后」「周五」「明晚」等）→ 结合当前日期（含星期几，会在输入末尾提供）推算出具体公历日期，不要留空；无法精确到具体某天时给出合理推断（如「下周抽」→ 推算为下周某天，取较近的合理日期）；③正文完全未提及任何时间 → 空字符串\\n- participate_way: 参与方式，如「转发+关注」（没有则空字符串）\\n- desc: 完整保留动态原文\\n若 is_lottery 为 false，其余字段留空即可。\"}}",
+  "participate_text": "关注+转发，支持一下",
+  "participate_text_mode": "random",
+  "scan_interval": "60",
+  "scan_llm_verify": "True",
+  "watch_backfill_days": "5",
+  "auto_schedule_enabled": "True",
+  "auto_schedule_time": "08:20",
+  "participate_batch": "7",
+  "skip_charge_lottery": "True",
+  "participate_text_gen_time": "at_parse",
+  "dm_check_interval_min": "30",
+  "dm_check_start": "08:00",
+  "dm_check_end": "22:00",
+  "daily_participate_limit": "100",
+  "action_interval_min": "3",
+  "action_interval_max": "5",
+  "activity_gap_min": "8",
+  "activity_gap_max": "15",
+  "auto_round_sleep": "500",
+  "bili_rps": "3",
+  "review_interval_min": "5",
+  "auto_scan_enabled": "False",
+  "auto_pro_scan_enabled": "False",
+  "monitor_empty_scan_remove": "3",
+  "cleanup_enabled": "False",
+  "cleanup_backfill_days": "3",
+  "cleanup_range_start": "",
+  "cleanup_range_end": "",
+  "cleanup_auto_interval_min": "0",
+  "cleanup_end_days": "15",
+  "cleanup_whitelist": "[]",
+  "cleanup_scan_gap": "1.0"
+ },
+ "monitor_users": [
+  {
+   "uid": "434630950",
+   "username": "阿祾哥哥",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "3546771737283009",
+   "username": "就叫蛋卷罢",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "1541755213",
+   "username": "岚庭2017",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "486112248",
+   "username": "北北又白给",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "667717511",
+   "username": "岂可岂可修修",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "1476454282",
+   "username": "歌姬独奏",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "3632303733475693",
+   "username": "白诗雨-vae",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "438876216",
+   "username": "恶狠狠复活",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "1430797508",
+   "username": "星宫・六喰",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "3537124280240483",
+   "username": "普通天然水",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "37966722",
+   "username": "尊师翔翔123",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "3546599613533044",
+   "username": "易中大奖",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "3546982129862845",
+   "username": "阿呆不呆哦豁",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "3706955969334211",
+   "username": "奶fufu兔儿",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "269981219",
+   "username": "King丶小皇帝",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "3690982004492899",
+   "username": "青春幻想青春",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "506706414",
+   "username": "阿婆主的藕粉",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "3706955973528265",
+   "username": "红与镜",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "237887995",
+   "username": "爱生活爱Zzz",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "341862838",
+   "username": "STRATHBERRY",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "1593972",
+   "username": "チェシャ猫·Nyanya",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "1327360295",
+   "username": "mmpmmmhh",
+   "monitor_type": "repost",
+   "note": ""
+  },
+  {
+   "uid": "697430568",
+   "username": "搲狂魔",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3706965232454421",
+   "username": "别卷了放过我",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546960539683494",
+   "username": "猫猫头夏目冰哥天崇",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "543817891",
+   "username": "满心皆是肯定",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1908423754",
+   "username": "概率学博士后",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546785284885345",
+   "username": "岁月如诗醉流年",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546615189080329",
+   "username": "洛神倾国",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546708115982438",
+   "username": "小黄佛",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546758646860145",
+   "username": "林家美媚在一方",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546573581585279",
+   "username": "不问青春",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546722116569534",
+   "username": "瓦格哈尔的龙焰",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "316181922",
+   "username": "宋怀南丶",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "341679607",
+   "username": "黄小毛毛-",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "15755070",
+   "username": "磕bx损身更损心性",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "362550605",
+   "username": "提刀的郭大杠",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707032773331779",
+   "username": "可爱小刺猬狐狐版",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "162607",
+   "username": "是阿包学长啊",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546650492537086",
+   "username": "呆布灰",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "438957218",
+   "username": "风华绝代明前辈",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546948730620486",
+   "username": "XLanxyi",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "515206128",
+   "username": "Dylan-guo",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "651515459",
+   "username": "热血量子咸鱼",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "448640176",
+   "username": "像素猫君",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1887396576",
+   "username": "家住米兰的小铁匠",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1975678386",
+   "username": "多放香菜多放醋",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1134441229",
+   "username": "三次元的硬币",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546856648869913",
+   "username": "罖亽00",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707044548840406",
+   "username": "Bbabykitty",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "408712722",
+   "username": "花江凛奈",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1650942791",
+   "username": "小果蛋蛋",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1143773445",
+   "username": "花火到永久",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546968517249619",
+   "username": "花泽咸菜yay",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493130047326502",
+   "username": "时间之海-将我淹埋",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "297973205",
+   "username": "咖啡我只喝蜜雪冰城_",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "601159405",
+   "username": "至高无上的命运啊-",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3461576803748806",
+   "username": "可我仍爱着那道晚霞-",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "477105566",
+   "username": "王紫荫",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "483107295",
+   "username": "沐羽橙枫-_-",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "533528925",
+   "username": "珊珊亮亮shine",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "553895221",
+   "username": "wjyglhf",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "408365238",
+   "username": "佛具豫剧团",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "483327897",
+   "username": "物质保护",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546799027521705",
+   "username": "筑基期巨擘",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "501544007",
+   "username": "washone",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546904480713252",
+   "username": "彼方之瞳",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546909715204723",
+   "username": "挨挨挤挤呀",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707042751580183",
+   "username": "中奖预告",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "52118101",
+   "username": "简单的果某人",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "47795089",
+   "username": "琉璃的默默",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3056618",
+   "username": "楚霸王1121",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546654403725670",
+   "username": "西部烤鱼",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707016614774832",
+   "username": "三国杀糕手233",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707046958467728",
+   "username": "传说中的河流11",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493289638497010",
+   "username": "一粘枕头不愿醒",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546836379896533",
+   "username": "可爱清清的爹",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "10615848",
+   "username": "吃炫迈啊啊啊",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "310004478",
+   "username": "微行者_",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3494360540776731",
+   "username": "转发参与",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1847600499",
+   "username": "中谷明日美",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3461570675869924",
+   "username": "麻辣烫不烫头",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "470263428",
+   "username": "巨龙悲鸣",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "2009685261",
+   "username": "陌璃与鱼",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493090843167638",
+   "username": "四个秋夏",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3690991464745636",
+   "username": "王的左手抓住圣枪",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1516734930",
+   "username": "晨光奕",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546982098406044",
+   "username": "卡卡派k",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3706979249817739",
+   "username": "细雨微风变暴雨",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "477013758",
+   "username": "林煥煥",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "348576075",
+   "username": "不用看了非洲来的",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546701702891649",
+   "username": "小丑幻想青春",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "475996518",
+   "username": "大番薯___",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546911460035355",
+   "username": "猫猫头冲鸭",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546858903308423",
+   "username": "这条街我罩",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546855916964311",
+   "username": "蒲公英不会来",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546818763819791",
+   "username": "嘉文之",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546891193157875",
+   "username": "枯岭街猛男",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "513401538",
+   "username": "奶奶爱吃太空人",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546377906817545",
+   "username": "黑目少女",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "102565061",
+   "username": "CMU收留我这个废物吧",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "524401533",
+   "username": "我是一条猪猪鱼",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546750172269274",
+   "username": "念晨昔",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546827066444295",
+   "username": "嘤嘤嘤小龙宝",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "687784118",
+   "username": "QUEST3000",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546746374327005",
+   "username": "尼古拉奥斯托",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "7215230",
+   "username": "王酸奶Official",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546905833376435",
+   "username": "你猜猜我帅么",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "26183422",
+   "username": "银河忘星",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1141839318",
+   "username": "金百合布加拉",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "25672074",
+   "username": "夏天的大呱",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "328953485",
+   "username": "loblingve",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "2785940",
+   "username": "RipNDip",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "629803217",
+   "username": "赛博格斗",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "361454346",
+   "username": "歡丶丶丶丶",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1843505122",
+   "username": "黒氿",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546858943154699",
+   "username": "阿菠萝海",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "544502983",
+   "username": "咕咕雷达",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3461575260244444",
+   "username": "up的忠实老粉猫猫头",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "53834460",
+   "username": "维C猪゜",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "494234480",
+   "username": "_怼烎_",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546644010240256",
+   "username": "FREEFIRE22",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "112764718",
+   "username": "童年的超真实扮家家酒",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3461563283408940",
+   "username": "老胡不是糊涂",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546858691496596",
+   "username": "红色大鹅鹅",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707045601610653",
+   "username": "我的AW有点准",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546788369795875",
+   "username": "米津玄师の柠檬",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1202229852",
+   "username": "芳晓映月明",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546886552160611",
+   "username": "五月凛风",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "328093026",
+   "username": "无谓哒哒哒",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707015853508641",
+   "username": "犁藤",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "355102644",
+   "username": "啊想要的名字都没了",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "452390858",
+   "username": "偶尔合群吧",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1322148648",
+   "username": "我有一梨寄",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546594880260504",
+   "username": "擯䵁",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "9332090",
+   "username": "OMR多多",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "2103219193",
+   "username": "桃子后悔来宇宙捉蝴蝶",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1932989077",
+   "username": "改名也不能脱非",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3706935199140446",
+   "username": "急巴巴桂桂",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "439514692",
+   "username": "木木夕喜欢可爱",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707001299274559",
+   "username": "1927149",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546641684499355",
+   "username": "星海妖",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546631704152932",
+   "username": "斌斌续费小精灵",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "517415818",
+   "username": "失梦之兰",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "279248464",
+   "username": "千殇雪依然",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546868493584843",
+   "username": "雪笺情",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1688196266",
+   "username": "分裂-分裂",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1602037280",
+   "username": "夢醒時分が",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "35262337",
+   "username": "懒懒的软软_yyl",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3494362654706017",
+   "username": "夏木蜡笔摸摸头",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "453803150",
+   "username": "坚强的巴旦木",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "298446224",
+   "username": "悟小六",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "544485711",
+   "username": "锦鲤来附个体",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "32444441",
+   "username": "星阶人",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "544196386",
+   "username": "设计实习生",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "604216104",
+   "username": "lunaBlink",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "544491443",
+   "username": "实用钥匙扣",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1440709302",
+   "username": "单志恒",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "134826",
+   "username": "有Cccc",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493077884865029",
+   "username": "米咔雪熊",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3706953859598392",
+   "username": "吃不到果派",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546929174678053",
+   "username": "安啦安宁",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546764743281079",
+   "username": "翔翔侠客时光崇香槟",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "372793166",
+   "username": "二二的辰",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546671365491481",
+   "username": "要霸气的春天",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707024495872061",
+   "username": "初见你是在家了",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "2021334779",
+   "username": "可乐伊尔斯乌QwQ",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1591777011",
+   "username": "老北京Mike",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "45997238",
+   "username": "阳台下种番茄",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546740296780122",
+   "username": "万物烟雨情",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546740290489193",
+   "username": "万物皆可抛哈",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "585012621",
+   "username": "凉了時光傷了心吧",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3691013046536778",
+   "username": "娜杰日达_安德烈耶娃",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "11555441",
+   "username": "小跑你有种别跑",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "43885647",
+   "username": "嘤嘤怪怪哒",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546872188767105",
+   "username": "安静-蜗牛",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546748242889092",
+   "username": "立起来的维尔",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "482745190",
+   "username": "无人问津的纷飞",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546640929524398",
+   "username": "Lucky_天使",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1780108452",
+   "username": "花与蛇or菊与刀",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "298177529",
+   "username": "洪都拉斯冰冷萃",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "264344587",
+   "username": "想成为花火大人的狗",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546817027377667",
+   "username": "小太阳能s",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1219193354",
+   "username": "KawaiiKuma",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3537110919285252",
+   "username": "沙之柩",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3461576027801927",
+   "username": "牧野你在哪",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "2065187056",
+   "username": "玫瑰花开似海",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1939655223",
+   "username": "_融入大家庭丶",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493139086051386",
+   "username": "樱雪仙狐",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546785045810141",
+   "username": "易冷星辉梦",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546722112375402",
+   "username": "爱挂科的学霸",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493287667173899",
+   "username": "藤蔓公主",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546760412662593",
+   "username": "钓鱼达人大D",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3494375795460727",
+   "username": "夺面英雄",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3537110657141255",
+   "username": "糖果大王_",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546579241798264",
+   "username": "菠萝的大洋",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1306970392",
+   "username": "梦梦衾寒",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546383218903746",
+   "username": "baby-yeyingyi",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546391135652154",
+   "username": "幽灵狼_",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546609145088948",
+   "username": "月光太空漫步",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1992367366",
+   "username": "信仰竹兰",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "324249815",
+   "username": "后藤一荲",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "470040286",
+   "username": "楠辞my",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "98210786",
+   "username": "原地引力波",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1599411564",
+   "username": "Avicii-Demons",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "349620473",
+   "username": "韩山成",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1317086394",
+   "username": "爆辣兔の前夫",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "2027788967",
+   "username": "Pm-老Z",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "57815790",
+   "username": "昵称开过光喔",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "570151352",
+   "username": "高僧休一",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "9220058",
+   "username": "园游会永远不打烊嘛",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707046220270430",
+   "username": "攒杯冰美式",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546590933420827",
+   "username": "小竹bambooovo",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546574336559640",
+   "username": "爱你一万年的DORO",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "448879397",
+   "username": "改名猫猫头的凯凯宝宝",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546842463734273",
+   "username": "雾岛眠小兔",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "328084590",
+   "username": "大地东爵",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3537120845105762",
+   "username": "小屁孩662",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "277680446",
+   "username": "谁七岁半",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3706953253522289",
+   "username": "懒_得取_名",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "19596439",
+   "username": "金戈玩游戏",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1964297218",
+   "username": "一个普通的普通的人",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3706972517960459",
+   "username": "薯条256",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "85615978",
+   "username": "斐斯特洛兹YcC",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "37141583",
+   "username": "dick调琴鸾伦人",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546566589679938",
+   "username": "嗚嗚嗚兔仔好可愛",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3537107213618009",
+   "username": "9墨溟1",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3494379218012773",
+   "username": "蝶恋花xcpd",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "603199110",
+   "username": "我叫大超vvv",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "21030230",
+   "username": "SKYCP3",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546928727984585",
+   "username": "晚上早早早早睡",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493284234136345",
+   "username": "星河一梦醉卧千年",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546646692497434",
+   "username": "似水云依",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "18006171",
+   "username": "江湖ni猫老大",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1913898546",
+   "username": "三碗猪脚面",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "6247376",
+   "username": "Air传承",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "37601688",
+   "username": "屋里格斗",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1870622441",
+   "username": "好歌剧挚爱豆豆",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "624956302",
+   "username": "炘系XinXi",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "430885239",
+   "username": "小逸Ling",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "472970007",
+   "username": "六个记忆夏",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "30564325",
+   "username": "取你妹的名儿",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1172185811",
+   "username": "生生步步高升",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "43130341",
+   "username": "牛肉面疙瘩88",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "402936395",
+   "username": "小年轻人",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493257216526847",
+   "username": "情随风逝YY",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546750235183368",
+   "username": "永远前进穿越牛熊",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1207703306",
+   "username": "鹿鹿无为躺平平",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3494380671339212",
+   "username": "摆烂的配角",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707016725924711",
+   "username": "枉费口舌",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "318969440",
+   "username": "秀戳戳",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "492110005",
+   "username": "总有人要",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493095779862754",
+   "username": "新来的最欧了",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "648531201",
+   "username": "bilibil1469168",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707041057081609",
+   "username": "CCJkoib",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546587531840404",
+   "username": "cosmos的星空",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "22637045",
+   "username": "The蘿蔔",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "172789848",
+   "username": "1狙鲫手1",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "95652275",
+   "username": "经纬度fooood",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "433536712",
+   "username": "白矖还在摸鱼",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546623581882572",
+   "username": "ped-bridge",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1717307991",
+   "username": "自由之水zy",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "409569315",
+   "username": "Forever墨年",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "596148228",
+   "username": "RTX20090",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3691011958115260",
+   "username": "头像你夫君",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "536327288",
+   "username": "1奇曲的曲奇1",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "2123219136",
+   "username": "宫硝-",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1227766313",
+   "username": "蒙之初",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "630369504",
+   "username": "乌漆嘛黑小蛞蝓0007",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1260836077",
+   "username": "开朗苏幽璃",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "698086705",
+   "username": "玛奇玛゜",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1763573647",
+   "username": "宝儿爱睡觉",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "2090707049",
+   "username": "被你提防的隔壁王大爷",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "145189810",
+   "username": "想逃离时间",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "67184135",
+   "username": "空筱是咸鱼xx",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546722252884179",
+   "username": "榴莲吃菠萝狗",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546851475196223",
+   "username": "LC_ai",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546955659610694",
+   "username": "鸣人的团扇",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "688442009",
+   "username": "SilentBystander",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546800810101732",
+   "username": "云_yunyun",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493132947688402",
+   "username": "赛mer",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3632300575164665",
+   "username": "芋小满taro",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546751246010565",
+   "username": "神奇的开心果",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546677810038933",
+   "username": "Redyutou233",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546815578245692",
+   "username": "yowate炎宽面",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1756280824",
+   "username": "易轻-",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546707379882157",
+   "username": "是冰洁啊a",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "39991257",
+   "username": "签到改昵称",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "457112975",
+   "username": "网络重度依赖症",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "618686636",
+   "username": "你伊尔迷",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "6715516",
+   "username": "百发百中大贤者",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707028321077320",
+   "username": "minato428",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "249772361",
+   "username": "sdslw18",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546978279491808",
+   "username": "东江小霸",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3461579743955595",
+   "username": "野区萧炎h",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "13510248",
+   "username": "小窈奶酪",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1974108779",
+   "username": "你说我乐不乐",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546935373859176",
+   "username": "萍萍超市11",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "516948070",
+   "username": "困倦与咦",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "325568166",
+   "username": "咸菜子酱",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "399211237",
+   "username": "一介所",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "280604312",
+   "username": "B站抽奖工具人",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "522912866",
+   "username": "情缘剑",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707026880334734",
+   "username": "幸运烧酒",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3461574868076571",
+   "username": "国漫只看韩跑跑",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3691003309459729",
+   "username": "试水之深浅",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546785834339195",
+   "username": "长夜饮风雪",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "470596369",
+   "username": "聪明睿智嘤嘤怪",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493276663417336",
+   "username": "中了直播倒立遛鸟",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546819892087318",
+   "username": "山田凉介不凉",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "488211587",
+   "username": "will剋",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1814399648",
+   "username": "欺负王羲之",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1456681702",
+   "username": "小薛OwO",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1136258020",
+   "username": "吴喵志",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "385198627",
+   "username": "Jメ先生",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3910893",
+   "username": "Page_配辑",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "64403419",
+   "username": "Quiet_Lf",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "354442640",
+   "username": "deingrossevater",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "387643012",
+   "username": "我爱你不是单纯的在乎",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493111210707755",
+   "username": "兰茵弥生",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493259783440673",
+   "username": "RB双",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "40938177",
+   "username": "FBI杂货铺",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546562552662827",
+   "username": "青禾Chingho",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546555952924799",
+   "username": "六个硬币改名做欧皇",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1207377499",
+   "username": "躺着喂咖啡",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546555518814337",
+   "username": "暮白秋雪",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "15730140",
+   "username": "小喇叭-朱西",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "544498034",
+   "username": "吸收欧气爆棚",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3461570115930910",
+   "username": "锦鲤猫猫头",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546380807178458",
+   "username": "up的钻粉",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "629795456",
+   "username": "通宵剪片呢",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1838338376",
+   "username": "晚安睡眠电台",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "18788512",
+   "username": "礼帽大橘",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "355582203",
+   "username": "Yoriiiiiiiii",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "436815199",
+   "username": "拇指玩邦人枯了",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "21806773",
+   "username": "窗外残月",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "68329335",
+   "username": "泡泡彡茶葫",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "27633668",
+   "username": "_皇冠小丑",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "499545377",
+   "username": "Kurisu凛",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "20656235",
+   "username": "冲冲冲冲中中中",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "30469566",
+   "username": "枚明null",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1280146420",
+   "username": "Oasis1005",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "24106532",
+   "username": "陌上墨璃",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "183599483",
+   "username": "寻风似火",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "480591542",
+   "username": "智昊",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546608664841184",
+   "username": "途锞",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "75028069",
+   "username": "肥肥的鸭_",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1686480448",
+   "username": "哦哦キ",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "448011217",
+   "username": "堕落为抽奖号",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707046511774575",
+   "username": "哔站员工偷吃",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546829723535770",
+   "username": "向左又向佑",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493260062361811",
+   "username": "是阿wen噢",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "252305299",
+   "username": "罗宾的奇妙冒险",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "546767256",
+   "username": "探月先锋",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546948365715827",
+   "username": "独享のMoment",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546751984208834",
+   "username": "怡宝不喝农夫山泉",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546760960018572",
+   "username": "现在还是太普通",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3632309972502696",
+   "username": "松间明月酌",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546834370824319",
+   "username": "时间总和",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1249010124",
+   "username": "向日葵馈",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1219736385",
+   "username": "大大1530",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546893388876537",
+   "username": "会奔跑的河南虎",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "2116574696",
+   "username": "想驯服疼痛",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "1293251",
+   "username": "夜弥Alter",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "258757558",
+   "username": "老年人之身",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3461579301456291",
+   "username": "Gtmon_",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3546803064539279",
+   "username": "大马赛克精灵",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "390135352",
+   "username": "行长-风范",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "432317033",
+   "username": "小凡啊6",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "2641530",
+   "username": "躺海大鱼",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3493299111332690",
+   "username": "千语的告白",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3706985883109617",
+   "username": "荒屿纵长风",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "616987469",
+   "username": "独酌寂寞",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  },
+  {
+   "uid": "3707045310105610",
+   "username": "千山百味",
+   "monitor_type": "repost",
+   "note": "职业抽奖号(自动发现)"
+  }
+ ]
+}
