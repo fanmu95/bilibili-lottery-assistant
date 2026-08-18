@@ -78,6 +78,15 @@ jobs:
           # ASCII 副本仅供 Artifact 上传（上传链路对中文文件名不可靠）
           Copy-Item $zip "lottery-assistant-$ver-windows-x64.zip"
 
+      - name: Debug zip 文件名（定位中文丢失环节）
+        shell: pwsh
+        run: |
+          Get-ChildItem *.zip | ForEach-Object {
+            $n = $_.Name
+            $codes = ($n.ToCharArray() | ForEach-Object { '{0:X4}' -f [int]$_ }) -join ','
+            Write-Host "FILE:[$n] LEN=$($n.Length) CODES=$codes"
+          }
+
       - name: 上传 Artifact
         uses: actions/upload-artifact@v4
         with:
