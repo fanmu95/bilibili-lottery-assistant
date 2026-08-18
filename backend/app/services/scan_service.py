@@ -274,16 +274,16 @@ class ScanManager:
                              or cand.get("prize_info", ""))
                     winner = (bili_client.BiliClient.notice_winner_count(notice)
                               if notice else 0) or (verdict or {}).get("winner_count") or 0
+                    desc = (verdict or {}).get("desc") or cand.get("desc", "")
                     end_time = (bili_client.BiliClient.notice_end_time(notice)
                                 if notice else None) \
                         or _parse_end_time(llm_client.fix_end_time_year(
                             str((verdict or {}).get("end_time") or ""),
-                            desc or cand.get("desc", ""))) \
+                            desc)) \
                         or _parse_end_time(llm_client.fix_end_time_year(
                             str(cand.get("end_time") or ""),
-                            desc or cand.get("desc", "")))
+                            desc))
                     title = (verdict or {}).get("title") or cand["title"]
-                    desc = (verdict or {}).get("desc") or cand.get("desc", "")
                     # 已结束的活动直接标记 ended（不在待参与中显示、不可参与）：
                     # ①有 end_time 且已过期；②互动抽奖 notice 显示已开奖（有中奖名单/status 非进行中）
                     now = datetime.now()
