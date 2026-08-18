@@ -70,25 +70,25 @@ jobs:
         shell: pwsh
         run: |
           $ver = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME } else { "dev-$($env:GITHUB_SHA.Substring(0,7))" }
-          # Windows runner 中文变量字面量会按 ANSI 解码乱码，用 Unicode 码点构造「抽奖助手」
+          # Windows runner 中文变量/环境变量传递会乱码，用 Unicode 码点构造「抽奖助手」，
+          # 上传/发布环节用 ASCII glob 匹配实际文件（不经 env 传中文）
           $prod = "$([char]0x62BD)$([char]0x5956)$([char]0x52A9)$([char]0x624B)"
           $zip = "$prod-$ver-windows-x64.zip"
           Write-Host "打包产物: $zip"
           Compress-Archive -Path "dist_win/抽奖助手/*" -DestinationPath $zip -Force
-          echo "ZIP_NAME=$zip" >> $env:GITHUB_ENV
 
       - name: 上传 Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-exe
-          path: ${{ env.ZIP_NAME }}
+          path: '*-windows-x64.zip'
           retention-days: 14
 
       - name: 打 tag 时发布 Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ZIP_NAME }}
+          files: '*-windows-x64.zip'
           generate_release_notes: true
 
   # ---------- ② Docker 镜像（amd64 + arm64） ----------
