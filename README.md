@@ -13,8 +13,8 @@
 
 ### 方式 A：Windows exe（桌面，最简单）
 
-1. **下载**：仓库 **Releases** 页 → 最新版 → `lottery-assistant-win64.zip`
-2. **运行**：解压 → 双击 `抽奖助手.exe` → 自动打开浏览器 `http://127.0.0.1:8000`（端口被占用自动换 8001~8019）
+1. **下载**：仓库 **Releases** 页 → 最新版 → `lottery-assistant-v*.*.*-windows-x64.zip`
+2. **运行**：解压 → 双击 `LotteryAssistant.exe` → 自动打开浏览器 `http://127.0.0.1:8000`（端口被占用自动换 8001~8019）
 3. **数据目录**：exe 旁 `data/` 文件夹（备份 = 拷它；迁移 = 整个文件夹拷走）
 
 ### 方式 B：Docker（NAS / Linux 服务器）

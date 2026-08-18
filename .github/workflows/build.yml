@@ -50,7 +50,7 @@ jobs:
 
       - name: 打包 exe（onedir windowed）
         run: |
-          python -m PyInstaller --noconfirm --onedir --name "抽奖助手" --windowed `
+          python -m PyInstaller --noconfirm --onedir --name "LotteryAssistant" --windowed `
             --workpath build_win --distpath dist_win `
             --add-data "frontend/dist;dist" `
             --add-data "backend/pack_data;pack_data" `
@@ -70,22 +70,9 @@ jobs:
         shell: pwsh
         run: |
           $ver = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME } else { "dev-$($env:GITHUB_SHA.Substring(0,7))" }
-          # Windows runner 中文变量字面量会按 ANSI 解码乱码，用 Unicode 码点构造「抽奖助手」
-          $prod = "$([char]0x62BD)$([char]0x5956)$([char]0x52A9)$([char]0x624B)"
-          $zip = "$prod-$ver-windows-x64.zip"
+          $zip = "lottery-assistant-$ver-windows-x64.zip"
           Write-Host "打包产物: $zip"
-          Compress-Archive -Path "dist_win/抽奖助手/*" -DestinationPath $zip -Force
-          # ASCII 副本仅供 Artifact 上传（上传链路对中文文件名不可靠）
-          Copy-Item $zip "lottery-assistant-$ver-windows-x64.zip"
-
-      - name: Debug zip 文件名（定位中文丢失环节）
-        shell: pwsh
-        run: |
-          Get-ChildItem *.zip | ForEach-Object {
-            $n = $_.Name
-            $codes = ($n.ToCharArray() | ForEach-Object { '{0:X4}' -f [int]$_ }) -join ','
-            Write-Host "FILE:[$n] LEN=$($n.Length) CODES=$codes"
-          }
+          Compress-Archive -Path "dist_win/LotteryAssistant/*" -DestinationPath $zip -Force
 
       - name: 上传 Artifact
         uses: actions/upload-artifact@v4
@@ -94,13 +81,12 @@ jobs:
           path: 'lottery-assistant-*-windows-x64.zip'
           retention-days: 14
 
-      - name: 打 tag 时发布 Release（gh CLI 上传中文资产名）
+      - name: 打 tag 时发布 Release
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
           $ver = $env:GITHUB_REF_NAME
-          $prod = "$([char]0x62BD)$([char]0x5956)$([char]0x52A9)$([char]0x624B)"
-          $zip = "$prod-$ver-windows-x64.zip"
+          $zip = "lottery-assistant-$ver-windows-x64.zip"
           gh release create "$ver" "$zip" --generate-notes --title "$ver"
         env:
           GH_TOKEN: ${{ github.token }}
