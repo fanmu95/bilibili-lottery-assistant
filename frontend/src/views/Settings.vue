@@ -67,11 +67,10 @@
           </div>
         </el-tab-pane>
 
-        <!-- ==================== 扫描与参与 ==================== -->
-        <el-tab-pane label="扫描与参与" name="scan">
+                <!-- ==================== 活动发现配置 ==================== -->
+        <el-tab-pane label="活动发现配置" name="scan">
           <div class="tab-wrap">
             <el-form label-width="180px" style="max-width: 720px">
-              <el-divider content-position="left">活动发现</el-divider>
               <el-form-item label="自动扫描间隔（分钟）">
                 <el-input-number v-model="form.scan_interval" :min="5" :max="1440" />
               </el-form-item>
@@ -91,48 +90,35 @@
                 <el-input-number v-model="form.monitor_empty_scan_remove" :min="0" :max="20" />
                 <span class="hint" style="margin-left: 8px">监控用户连续 N 次扫描无抽奖活动 → 标记失效剔除；0 = 不启用</span>
               </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :icon="Check" @click="save">保存设置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+        </el-tab-pane>
 
-              <el-divider content-position="left">转发动态清理（已开奖未中奖自动删除）</el-divider>
-              <el-form-item label="启用清理">
-                <el-switch v-model="form.cleanup_enabled" />
-                <span class="hint" style="margin-left: 8px">官方抽奖开奖后未中奖 → 直接删；其他活动开奖超过 N 天才删（先预览确认）</span>
-              </el-form-item>
-              <el-form-item label="开奖超过（天）">
-                <el-input-number v-model="form.cleanup_end_days" :min="0" :max="365" />
-                <span class="hint" style="margin-left: 8px">非官方抽奖：开奖日期距今超过 N 天才清理；0 = 不限（官方抽奖不受此限制）</span>
-              </el-form-item>
-              <el-form-item label="自动清理间隔（分钟）">
-                <el-input-number v-model="form.cleanup_auto_interval_min" :min="0" :max="1440" />
-                <span class="hint" style="margin-left: 8px">0 = 仅手动触发；开启后按间隔自动清理</span>
-              </el-form-item>
-              <el-form-item label="立即清理">
-                <el-button type="warning" plain :loading="cleanupLoading" @click="cleanupPreview">预览（统计将删除）</el-button>
-                <el-button type="danger" plain :disabled="cleanupLoading" @click="cleanupRun">执行删除</el-button>
-                <span class="hint" style="margin-left: 8px">执行前先预览；删除不可恢复！</span>
-              </el-form-item>
-
-              <el-divider content-position="left">参与设置</el-divider>
+        <!-- ==================== 参与设置 ==================== -->
+        <el-tab-pane label="参与设置" name="participate">
+          <div class="tab-wrap">
+            <el-form label-width="180px" style="max-width: 720px">
+              <el-divider content-position="left">参与文案</el-divider>
               <el-form-item label="参与文案模式">
                 <el-radio-group v-model="form.participate_text_mode">
                   <el-radio value="custom">自定义文案</el-radio>
-                  <el-radio value="random_comment">借用随机评论</el-radio>
                   <el-radio value="llm_generate">LLM 生成贴合评论</el-radio>
                   <el-radio value="random">随机混合</el-radio>
                 </el-radio-group>
-                <div class="hint" style="margin-left: 8px">随机混合：每次随机从【真实评论 / LLM 贴合评论 / 内置自然文案】中挑一种，避免千篇一律</div>
+                <div class="hint" style="margin-left: 8px">随机混合：每次随机从【LLM 贴合评论 / 自定义文案池】中挑一种，避免千篇一律</div>
               </el-form-item>
-              <el-form-item v-if="form.participate_text_mode === 'custom'" label="参与文案">
-                <el-input v-model="form.participate_text" type="textarea" :rows="2"
-                  placeholder="自定义模式下转发/评论时使用的内容" />
+              <el-form-item v-if="form.participate_text_mode === 'custom' || form.participate_text_mode === 'random'" label="参与文案池">
+                <el-input v-model="form.participate_text" type="textarea" :rows="10"
+                  placeholder="一行一条评论，custom / 随机混合 模式从此随机挑选&#10;可随时编辑，保存后立即生效（热更新）" />
+                <div class="hint" style="margin: 4px 0 0 0">一行一条评论；random 混合模式也会用到这里的文案</div>
               </el-form-item>
-              <el-form-item v-else label="参与文案">
+              <el-form-item v-else label="参与文案池">
                 <el-alert type="info" :closable="false" show-icon
-                  title="当前模式不使用自定义文案"
-                  :description="form.participate_text_mode === 'random_comment'
-                    ? '将随机借用该动态评论区中真实用户的评论（跳过前 5 条热评）'
-                    : form.participate_text_mode === 'random'
-                      ? '随机混合：真实评论 / LLM 贴合评论 / 内置自然文案池随机挑一种，失败自动降级'
-                      : '将根据活动正文，由 LLM 生成贴合内容的简短评论'" />
+                  title="当前模式使用 LLM 生成，不使用自定义文案池"
+                  description="将根据活动正文，由 LLM 生成贴合内容的简短评论；失败自动降级到自定义文案池" />
               </el-form-item>
               <el-form-item label="单批次参与数量">
                 <el-input-number v-model="form.participate_batch" :min="1" :max="10" />
@@ -167,19 +153,7 @@
                 <span class="hint" style="margin-left: 8px">全局 B 站请求限流（越低越安全）</span>
               </el-form-item>
 
-              <el-divider content-position="left">私信消息检测（白名单）</el-divider>
-              <el-form-item label="检测间隔（分钟）">
-                <el-input-number v-model="form.dm_check_interval_min" :min="5" :max="1440" controls-position="right" style="width: 160px" />
-                <span class="hint" style="margin-left: 8px">默认 30 分钟检查一次新私信/回复</span>
-              </el-form-item>
-              <el-form-item label="白名单时间段">
-                <el-time-picker v-model="dmCheckStart" format="HH:mm" value-format="HH:mm" style="width: 140px" />
-                <span class="hint" style="margin: 0 6px">至</span>
-                <el-time-picker v-model="dmCheckEnd" format="HH:mm" value-format="HH:mm" style="width: 140px" />
-                <span class="hint" style="margin-left: 8px">默认 08:00 ~ 22:00，白名单内按间隔检测，其余时间不检测</span>
-              </el-form-item>
-
-              <el-divider content-position="left">定时自动参与（对齐 bilibinggo 定时点击）</el-divider>
+              <el-divider content-position="left">定时自动参与</el-divider>
               <el-form-item label="启用定时调度">
                 <el-switch v-model="form.auto_schedule_enabled" />
               </el-form-item>
@@ -193,7 +167,35 @@
           </div>
         </el-tab-pane>
 
-        <!-- ==================== 关于 ==================== -->
+        <!-- ==================== 其他 ==================== -->
+        <el-tab-pane label="其他" name="other">
+          <div class="tab-wrap">
+            <el-form label-width="180px" style="max-width: 720px">
+              <el-divider content-position="left">私信消息检测（白名单）</el-divider>
+              <el-form-item label="检测间隔（分钟）">
+                <el-input-number v-model="form.dm_check_interval_min" :min="5" :max="1440" controls-position="right" style="width: 160px" />
+                <span class="hint" style="margin-left: 8px">默认 30 分钟检查一次新私信/回复</span>
+              </el-form-item>
+              <el-form-item label="白名单时间段">
+                <el-time-picker v-model="dmCheckStart" format="HH:mm" value-format="HH:mm" style="width: 140px" />
+                <span class="hint" style="margin: 0 6px">至</span>
+                <el-time-picker v-model="dmCheckEnd" format="HH:mm" value-format="HH:mm" style="width: 140px" />
+                <span class="hint" style="margin-left: 8px">默认 08:00 ~ 22:00，白名单内按间隔检测，其余时间不检测</span>
+              </el-form-item>
+
+              <el-divider content-position="left">版本检测</el-divider>
+              <el-form-item label="检测新版本">
+                <el-switch v-model="form.update_check_enabled" />
+                <span class="hint" style="margin-left: 8px">每次打开页面检查 GitHub Releases 新版本并弱提醒；关闭后不再检测/提醒</span>
+              </el-form-item>
+              <el-form-item>
+                <el-button type="primary" :icon="Check" @click="save">保存设置</el-button>
+              </el-form-item>
+            </el-form>
+          </div>
+        </el-tab-pane>
+
+<!-- ==================== 关于 ==================== -->
         <el-tab-pane label="关于" name="about">
           <div class="tab-wrap">
             <el-descriptions :column="1" border style="max-width: 720px">
@@ -211,6 +213,46 @@
                 本工具仅供学习研究，请遵守哔哩哔哩社区规范与相关法律法规，合理控制使用频率，避免对平台造成负担。
               </el-descriptions-item>
             </el-descriptions>
+
+            <!-- 版本检查 / 自动更新 -->
+            <el-divider content-position="left">版本与更新</el-divider>
+            <div style="max-width: 720px">
+              <el-descriptions :column="2" border size="small" style="max-width: 560px">
+                <el-descriptions-item label="当前版本">{{ updateInfo.current || '-' }}</el-descriptions-item>
+                <el-descriptions-item label="最新版本">
+                  <template v-if="updateInfo.check_enabled === false">
+                    <el-tag size="small" type="info" effect="plain">已关闭检测（可在「其他」页开启）</el-tag>
+                  </template>
+                  <template v-else-if="updateInfo.latest">
+                    <span :class="updateInfo.has_update ? 'upd-new' : ''">{{ updateInfo.latest }}</span>
+                    <el-tag v-if="updateInfo.has_update" size="small" type="warning" effect="plain" style="margin-left:6px">有新版本</el-tag>
+                  </template>
+                  <span v-else class="dim">检查失败/无数据</span>
+                </el-descriptions-item>
+              </el-descriptions>
+
+              <!-- Windows 端：下载 + 进度 + 立即更新 -->
+              <template v-if="!updateInfo.is_docker">
+                <div style="margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                  <el-button type="primary" plain :loading="updDownloading" :disabled="!updateInfo.has_update" @click="doDownload">
+                    {{ updateInfo.has_update ? '下载更新' : '已是最新' }}
+                  </el-button>
+                  <el-button type="danger" plain :disabled="!updReady" @click="doApply">立即更新</el-button>
+                  <span v-if="updateInfo.release_url">
+                    <a :href="updateInfo.release_url" target="_blank" rel="noopener" class="dim" style="font-size:12px">前往 Release 下载 →</a>
+                  </span>
+                </div>
+                <div v-if="updDownloading" style="margin-top: 8px; max-width: 560px">
+                  <el-progress :percentage="updPercent" :stroke-width="14" :format="updPercentFormat" />
+                  <div class="dim" style="font-size: 12px; margin-top: 4px">{{ updStatusText }}</div>
+                </div>
+              </template>
+
+              <!-- Docker 端：命令提示（容器内 bat 方案不适用） -->
+              <el-alert v-else type="info" :closable="false" show-icon style="margin-top: 12px; max-width: 720px"
+                title="当前为 Docker 部署，请在宿主机执行以下命令更新（数据卷 /app/data 自动保留，设置不丢失）"
+                :description="'docker compose pull && docker compose up -d'" />
+            </div>
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -219,14 +261,13 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, Download, Connection, Setting } from '@element-plus/icons-vue'
-import { settingApi, cleanupApi } from '../api'
+import { settingApi, updateApi } from '../api'
 
 const tab = ref('llm')
 const form = reactive({})
-const cleanupLoading = ref(false)
 const scheduleTime = ref('10:00')
 const dmCheckStart = ref('08:00')
 const dmCheckEnd = ref('22:00')
@@ -237,6 +278,67 @@ const testing = ref(false)
 const override = reactive({ temperature: 0.7, top_p: 1.0, max_tokens: 1024, system_prompt: '' })
 
 const features = ['多账号管理', '扫码登录', '私信回复查看', 'DM 计数', '@提及计数', '活动发现', '批量导入', '扫描进度', 'LLM 解析', '三连参与', '定时调度']
+
+// ---------- 版本检查 / 自动更新 ----------
+const updateInfo = reactive({ current: '', latest: '', has_update: false, download_url: '', release_url: '', is_docker: false })
+const updDownloading = ref(false)
+const updReady = ref(false)
+const updPercent = ref(0)
+const updStatusText = ref('')
+let updTimer = null
+
+async function checkUpdate() {
+  try {
+    const u = await updateApi.check()
+    Object.assign(updateInfo, u || {})
+  } catch (e) { /* 静默 */ }
+}
+
+function updPercentFormat(p) { return p >= 100 ? '下载完成' : `${p}%` }
+
+async function doDownload() {
+  updDownloading.value = true
+  updPercent.value = 0
+  updStatusText.value = '开始下载...'
+  try {
+    const r = await updateApi.download()
+    if (!r.ok) { ElMessage.warning(r.message || '下载启动失败'); updDownloading.value = false; return }
+    updTimer = setInterval(async () => {
+      try {
+        const p = await updateApi.progress()
+        const total = p.total || 0
+        updPercent.value = total ? Math.min(100, Math.round((p.downloaded / total) * 100)) : 0
+        updStatusText.value = total
+          ? `已下载 ${(p.downloaded / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`
+          : '下载中...'
+        if (p.done) {
+          clearInterval(updTimer); updTimer = null
+          updDownloading.value = false
+          updPercent.value = 100
+          updReady.value = true
+          ElMessage.success('下载完成，可点击「立即更新」')
+        } else if (p.error) {
+          clearInterval(updTimer); updTimer = null
+          updDownloading.value = false
+          ElMessage.error('下载失败：' + p.error)
+        }
+      } catch (e) { /* 轮询失败忽略 */ }
+    }, 1500)
+  } catch (e) { updDownloading.value = false }
+}
+
+async function doApply() {
+  try {
+    await ElMessageBox.confirm(
+      '更新将退出应用并由脚本自动替换程序文件后重启（用户数据 data/ 保留）。确定立即更新？',
+      '立即更新确认', { type: 'warning', confirmButtonText: '立即更新', cancelButtonText: '取消' })
+  } catch (e) { return }
+  try {
+    const r = await updateApi.apply()
+    if (!r.ok) return ElMessage.warning(r.message || '更新启动失败')
+    ElMessage.success('更新已启动，应用即将退出并自动重启...')
+  } catch (e) { ElMessage.error('更新启动失败') }
+}
 
 const DEFAULT_PROMPT = '你是哔哩哔哩抽奖活动识别助手。判断用户输入是否为抽奖活动，如果是，输出 JSON：{"is_lottery": true, "prize": "奖品", "winner_count": 0}；如果不是输出 {"is_lottery": false}。只输出 JSON。'
 
@@ -353,9 +455,6 @@ async function save() {
     watch_backfill_days: form.watch_backfill_days,
     auto_pro_scan_enabled: form.auto_pro_scan_enabled,
     monitor_empty_scan_remove: form.monitor_empty_scan_remove,
-    cleanup_enabled: form.cleanup_enabled,
-    cleanup_end_days: form.cleanup_end_days,
-    cleanup_auto_interval_min: form.cleanup_auto_interval_min,
     participate_text: form.participate_text,
     participate_text_mode: form.participate_text_mode,
     participate_batch: form.participate_batch,
@@ -372,39 +471,17 @@ async function save() {
     dm_check_interval_min: form.dm_check_interval_min,
     dm_check_start: dmCheckStart.value || '08:00',
     dm_check_end: dmCheckEnd.value || '22:00',
+    update_check_enabled: !!form.update_check_enabled,
   }
   await settingApi.save(payload)
   ElMessage.success('设置已保存')
 }
 
-// ---------- 转发动态清理（已开奖未中奖删除） ----------
-async function cleanupPreview() {
-  cleanupLoading.value = true
-  try {
-    const s = await cleanupApi.preview()
-    if (s.error) return ElMessage.warning(s.error)
-    ElMessageBox.alert(
-      `检查 ${s.checked} 个已开奖转发\n中奖保留 ${s.won_keep} · 未开奖/无名单 ${s.no_notice + s.not_ended} · 将删除 ${s.to_delete} 条` +
-      (s.items && s.items.length ? `\n\n示例：\n${s.items.slice(0, 8).map(i => `· ${i.title}（${i.reason}）`).join('\n')}` : ''),
-      '清理预览', { confirmButtonText: '知道了', type: 'warning' })
-  } finally { cleanupLoading.value = false }
-}
-
-async function cleanupRun() {
-  try {
-    await ElMessageBox.confirm(
-      '将删除所有「已开奖且未中奖」的转发动态，删除后不可恢复！确定执行？',
-      '危险操作确认', { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' })
-  } catch (e) { return }
-  cleanupLoading.value = true
-  try {
-    const s = await cleanupApi.run()
-    if (s.error) return ElMessage.warning(s.error)
-    ElMessage.success(`已删除 ${s.deleted} 条已开奖未中奖的转发动态（检查 ${s.checked}）`)
-  } finally { cleanupLoading.value = false }
-}
-
-onMounted(loadSettings)
+onMounted(() => {
+  loadSettings()
+  checkUpdate()
+})
+onUnmounted(() => { if (updTimer) { clearInterval(updTimer); updTimer = null } })
 </script>
 
 <style scoped>

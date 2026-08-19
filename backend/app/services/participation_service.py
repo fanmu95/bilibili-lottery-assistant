@@ -246,11 +246,11 @@ def _run(activity_id: int, account_id: int):
                 client=act_client, dynamic_id=act.activity_id,
                 activity_text=(act.desc or "") or act.title or "",
                 llm_cfg=llm_cfg,
-                allow_network=mode in ("random_comment", "llm_generate", "random"))
+                allow_network=mode in ("llm_generate", "random"))
             comment_text = res["text"]
             source = res["source"]
             pool_size = res.get("pool_size", 0)
-            if not act.comment_text and mode in ("random_comment", "llm_generate"):
+            if not act.comment_text and mode in ("llm_generate", "random"):
                 act.comment_text = comment_text
 
         # 取消检查：文案解析后
@@ -270,6 +270,15 @@ def _run(activity_id: int, account_id: int):
         if account.id not in accounts:
             accounts.append(account.id)
             act.participated_accounts = _json.dumps(accounts)
+        # 账号级参与时间（配额准确计数）：记录本账号实际参与时刻
+        try:
+            pmap = _json.loads(act.participated_at_map or "{}")
+            if not isinstance(pmap, dict):
+                pmap = {}
+            pmap[str(account.id)] = datetime.now().isoformat()
+            act.participated_at_map = _json.dumps(pmap)
+        except Exception:
+            pass
         # 状态语义：还有账号未参与 -> 保持 pending（留在待参与列表，可继续用其他账号参与）；
         # 所有 active 账号都已参与 -> 才置 participated。
         active_ids = [a.id for a in db.query(models.Account)
@@ -314,14 +323,22 @@ def _run(activity_id: int, account_id: int):
                     on_step=on_step)
                 action_results = exec_res.get("results", [])
                 action_errors = exec_res.get("errors", [])
+                # 账号级永久限制（被拉黑/隐私设置）→ 持久化，自动模式后续自动跳过
+                for _lt in (exec_res.get("limits") or []):
+                    try:
+                        from .auto_service import auto_manager
+                        auto_manager._record_author_limit(
+                            db, account.id, act.author_uid or "", _lt)
+                    except Exception:
+                        pass
             except Exception as e:
                 action_errors.append(f"执行互动异常: {e}")
         else:
             action_errors.append("账号无 cookies，已跳过真实互动（仅本地记录）")
 
         # ---- 汇总 ----
-        source_note = {"custom": "自定义", "random_comment": f"借用评论(池{pool_size})",
-                       "llm_generate": "LLM生成", "pre_generated": "预生成",
+        source_note = {"custom": "自定义", "llm_generate": "LLM生成",
+                       "pre_generated": "预生成",
                        "custom_fallback": "自定义兜底"}.get(source, source)
         action_note = ""
         if action_results:

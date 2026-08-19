@@ -33,7 +33,7 @@ class MonitorUser(Base):
     uid = Column(String(64), index=True)
     username = Column(String(128), default="")
     avatar = Column(String(512), default="")
-    # repost = 监控用户转发的抽奖活动；publish = 监控用户发布的抽奖活动
+    # monitor_type：repost = 监控用户转发的抽奖活动（唯一类型，publish 已移除）
     monitor_type = Column(String(32), default="repost")
     status = Column(String(32), default="active")
     note = Column(String(256), default="")
@@ -57,7 +57,7 @@ class Activity(Base):
     author_name = Column(String(128), default="")
     source_uid = Column(String(64), default="")
     source_name = Column(String(128), default="")
-    source_type = Column(String(32), default="repost")  # repost / publish
+    source_type = Column(String(32), default="repost")  # 活动来源（repost；publish 已移除，历史数据保留）
     prize_info = Column(Text, default="")
     winner_count = Column(Integer, default=0)
     repost_count = Column(Integer, default=0)
@@ -70,6 +70,7 @@ class Activity(Base):
     note = Column(String(256), default="")
     participated_at = Column(DateTime, nullable=True)
     participated_accounts = Column(Text, default="[]")  # JSON: 参与该活动的账号 id 列表
+    participated_at_map = Column(Text, default="{}")  # JSON: {account_id: 参与时间ISO}，账号级参与时间（配额准确计数）
     reviewed_at = Column(DateTime, nullable=True)  # 两阶段复核：第二次 LLM 评判纠错完成时间
     pro_discovered_at = Column(DateTime, nullable=True)  # 职业号发现完成时间（避免重复发现）
     cleanup_deleted_at = Column(DateTime, nullable=True)  # 清理：已开奖未中奖的转发动态被删除时间（避免重复删）

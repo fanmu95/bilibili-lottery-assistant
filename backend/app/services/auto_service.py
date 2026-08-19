@@ -68,7 +68,6 @@ class AutoManager:
         self._last_schedule_date = None   # 当天已定时启动的日期（防重复）
         self._last_dm_check = None        # 上次私信检测时间（按 dm_check_interval_min 间隔）
         self._last_review_check = None    # 上次后台复核巡检时间（独立于全自动轮次）
-        self._last_cleanup_check = None   # 上次转发动态自动清理时间（cleanup_auto_interval_min）
         self._last_auto_scan = None       # 上次定时自动扫描时间（按 scan_interval 间隔）
         self.state = {
             "running": False,
@@ -285,33 +284,6 @@ class AutoManager:
                                                 f"定时自动扫描启动（间隔 {sc_interval} 分钟）")
                     except Exception:
                         pass
-                    # ---- ⑤ 转发动态自动清理（已开奖未中奖删除，受开关+间隔控制）----
-                    # 默认仅手动（cleanup_auto_interval_min=0）；开启后按间隔巡检，
-                    # 只删除「已开奖且中奖名单无当前账号」的转发动态（dry_run 预览在接口层）
-                    try:
-                        if str(settings_map.get("cleanup_enabled", "")).lower() \
-                                in ("true", "1", "yes"):
-                            cl_interval = int(float(settings_map.get(
-                                "cleanup_auto_interval_min", 0) or 0))
-                            if cl_interval > 0:
-                                now = datetime.now()
-                                cl_due = (self._last_cleanup_check is None
-                                          or (now - self._last_cleanup_check).total_seconds()
-                                          >= cl_interval * 60)
-                                if cl_due:
-                                    self._last_cleanup_check = now
-                                    from .cleanup_service import cleanup_transfers
-                                    db2 = SessionLocal()
-                                    try:
-                                        stat = cleanup_transfers(db2, dry_run=False)
-                                        if stat.get("deleted"):
-                                            add_log(db, "warning", "activity",
-                                                    f"自动清理：删除 {stat['deleted']} 条"
-                                                    f"已开奖未中奖转发（检查 {stat['checked']}）")
-                                    finally:
-                                        db2.close()
-                    except Exception:
-                        pass
                 finally:
                     db.close()
             except Exception:
@@ -349,25 +321,92 @@ class AutoManager:
         return cnt
 
     def _account_quota_used(self, db, account_id) -> int:
-        """该账号今日已参与数（每账号独立配额，按 participated_accounts 聚合）"""
+        """该账号今日已参与数（每账号独立配额）。
+
+        按 participated_at_map（{account_id: 参与时间ISO}）统计该账号今日实际参与数；
+        map 缺失（存量数据）时用 participated_at 兜底：
+        participated_at 在今天 0 点后、且该账号在 participated_accounts 中 → 计 1。
+        """
         import json as _json
+        from datetime import datetime as _dt
         try:
             today_start = datetime.now().replace(
                 hour=0, minute=0, second=0, microsecond=0)
-            acts = (db.query(models.Activity)
-                    .filter(models.Activity.participated_at >= today_start)
-                    .all())
+            acts = db.query(models.Activity).filter(
+                (models.Activity.participated_at.isnot(None))
+                | (models.Activity.participated_at_map.isnot(None))
+                | (models.Activity.participated_at_map != "{}")
+            ).all()
             cnt = 0
             for a in acts:
                 try:
-                    accs = _json.loads(a.participated_accounts or "[]")
-                    if isinstance(accs, list) and account_id in accs:
-                        cnt += 1
+                    pmap = _json.loads(a.participated_at_map or "{}")
+                    if isinstance(pmap, dict) and pmap.get(str(account_id)):
+                        try:
+                            t = _dt.fromisoformat(str(pmap[str(account_id)]))
+                            if t >= today_start:
+                                cnt += 1
+                            continue
+                        except Exception:
+                            pass
+                    # map 无该账号记录：存量兜底（participated_at 今日 + 账号在列表）
+                    if a.participated_at and a.participated_at >= today_start:
+                        accs = _json.loads(a.participated_accounts or "[]")
+                        if isinstance(accs, list) and account_id in accs:
+                            cnt += 1
                 except Exception:
                     continue
             return cnt
         except Exception:
             return 0
+
+    # ---------------- 账号×UP主 永久限制（被拉黑/隐私设置不能关注） ----------------
+    @staticmethod
+    def _load_author_limits(db) -> dict:
+        """读取限制表：{账号id: {UPuid: {"blocked": bool, "no_follow": bool, "at": iso}}}"""
+        try:
+            r = db.query(models.Setting).filter_by(
+                key="account_author_limits").first()
+            d = __import__("json").loads(r.value or "{}") if r and r.value else {}
+            return d if isinstance(d, dict) else {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _save_author_limits(db, data: dict):
+        try:
+            r = db.query(models.Setting).filter_by(
+                key="account_author_limits").first()
+            _json = __import__("json")
+            if r:
+                r.value = _json.dumps(data, ensure_ascii=False)
+            else:
+                db.add(models.Setting(
+                    key="account_author_limits",
+                    value=_json.dumps(data, ensure_ascii=False)))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    def _record_author_limit(self, db, account_id, author_uid, limit_type):
+        """记录账号×UP主 限制：blocked=被拉黑（整个活动跳过）/ no_follow=隐私设置（跳过关注）"""
+        if not author_uid:
+            return
+        try:
+            data = self._load_author_limits(db)
+            acc = data.setdefault(str(account_id), {})
+            cur = acc.get(str(author_uid), {})
+            if not isinstance(cur, dict):
+                cur = {}
+            cur["at"] = datetime.now().isoformat()
+            if limit_type == "blocked":
+                cur["blocked"] = True
+            elif limit_type == "no_follow":
+                cur["no_follow"] = True
+            acc[str(author_uid)] = cur
+            self._save_author_limits(db, data)
+        except Exception:
+            pass
 
     def _quota_exhausted(self, db) -> bool:
         """所有 active 账号的今日参与配额是否都已用完（每账号独立配额）。
@@ -519,19 +558,29 @@ class AutoManager:
         # 参与顺序：**最近开奖优先**（end_time 升序）——即将开奖的活动先参与，
         # 防止快开奖的被远期全新活动插队（新账号也按此顺序补参与）。
         # SQLite 中 NULL 在 ASC 排序里排最前，须加 end_time.is_(None).asc() 让无日期活动排最后。
+        # 关键：不能只取前 N 条（end_time 升序会被"已全参与但未开奖"的活动占满，
+        # 真正可参与的排在后面被 limit 截断 → 每轮"无可参与的新活动（待参与 N）"矛盾）。
+        # 方案：全量取回 + 内存过滤「所有 active 账号都已参与」的活动（量小，毫秒级）。
         rows = (db.query(models.Activity)
                 .filter(models.Activity.status.in_(["pending", "participated"]),
                         (models.Activity.end_time.is_(None))
                         | (models.Activity.end_time > now))
-                .order_by(models.Activity.end_time.is_(None).asc(),
-                          models.Activity.end_time.asc(),
-                          models.Activity.participated_at.is_(None).desc())
-                .limit(limit * 15).all())
+                .all())
         # 内存过滤：排除所有 active 账号都已参与的活动（无账号可参与）
         rows = [a for a in rows
                 if not (active_ids and all(
                     aid in (_parse_accs(a.participated_accounts) or [])
-                    for aid in active_ids))][:limit * 6]
+                    for aid in active_ids))]
+        # 排序：**账号均衡优先**——未参与账号数降序（全新活动缺 3 账号排最前，
+        # 所有账号都有机会参与，避免快开奖活动被老账号参与完后只剩新账号补，
+        # 导致老账号持续闲置）；同权活动内 end_time 升序（最近开奖优先），
+        # 无日期活动最后。
+        def _cand_key(a):
+            _acc = _parse_accs(a.participated_accounts) or []
+            _missing = len([aid for aid in active_ids if aid not in _acc])
+            _et = a.end_time
+            return (-_missing, 1 if _et is None else 0, _et or datetime.min)
+        rows = sorted(rows, key=_cand_key)[:limit * 6]
 
         participated = 0
         for act in rows:
@@ -574,6 +623,22 @@ class AutoManager:
                 with self._lock:
                     self.state["current_activity"] = act_title
                     self.state["current_account"] = account.username
+                # ---- 账号×UP主 永久限制：被拉黑则整个活动跳过该账号 ----
+                try:
+                    _limits_map = self._load_author_limits(db)
+                    _lim = (_limits_map.get(str(account.id), {}) or {}).get(
+                        str(act.author_uid or ""), {})
+                except Exception:
+                    _lim = {}
+                if not isinstance(_lim, dict):
+                    _lim = {}
+                if _lim.get("blocked"):
+                    self._set_action(
+                        f"「{act_title}」被该UP主拉黑，{account.username} 跳过", "info")
+                    add_log(db, "info", "auto",
+                            f"全自动跳过：{account.username} 被 UP {act.author_uid} 拉黑（{act_title}）")
+                    continue
+                _no_follow = bool(_lim.get("no_follow"))
                 # ---- 已结束校验：无 end_time 的活动参与前实时探测 ----
                 # 仅依据官方数据：互动抽奖 lottery_notice 显示已开奖（有中奖名单/status 非进行中）。
                 # 普通抽奖（无 notice、无 end_time）不按发布时长判死——
@@ -624,9 +689,9 @@ class AutoManager:
                         client=act_client, dynamic_id=act.activity_id,
                         activity_text=(act.desc or "") or act.title or "",
                         llm_cfg=llm_cfg,
-                        allow_network=mode in ("random_comment", "llm_generate", "random"))
+                        allow_network=mode in ("llm_generate", "random"))
                     comment_text = res["text"]
-                    if not act.comment_text and mode in ("random_comment", "llm_generate", "random"):
+                    if not act.comment_text and mode in ("llm_generate", "random"):
                         act.comment_text = comment_text
                 # 真实三连（预约类动态：先预约再三连，预约即参与抽奖）
                 errors = []
@@ -641,6 +706,11 @@ class AutoManager:
                         steps = ("like", "repost", "comment")
                         if act.author_uid:
                             steps = ("like", "follow", "repost", "comment")
+                        if _no_follow and "follow" in steps:
+                            # 该 UP 主隐私设置不能关注：跳过关注步骤，其余动作照常
+                            steps = tuple(s for s in steps if s != "follow")
+                            add_log(db, "info", "auto",
+                                    f"该UP主隐私设置不能关注，{account.username} 跳过关注（{act_title}）")
                         if reserve_info:
                             # 预约类动态（直播预约/视频预约）：预约 + 三连都做，预约前置
                             steps = ("reserve",) + steps
@@ -664,12 +734,28 @@ class AutoManager:
                             reserve_info=reserve_info,
                             on_step=on_step)
                         errors = exec_res.get("errors", [])
+                        # 账号级永久限制（被拉黑/隐私设置）→ 持久化，后续自动跳过
+                        for _lt in (exec_res.get("limits") or []):
+                            self._record_author_limit(
+                                db, account.id, act.author_uid or "", _lt)
                     except Exception as e:
                         errors.append(f"互动异常: {e}")
                 else:
                     errors.append("无 cookies，仅本地记录")
-                act_accounts.append(account.id)
-                act.participated_accounts = __import__("json").dumps(act_accounts)
+                # 只有动作成功（无 errors）才记录该账号参与——失败不算参与，
+                # 避免 participated_accounts 虚高导致今日参与数/配额计数虚高
+                if not errors:
+                    act_accounts.append(account.id)
+                    act.participated_accounts = __import__("json").dumps(act_accounts)
+                    # 账号级参与时间（配额准确计数）：记录本账号实际参与时刻
+                    try:
+                        pmap = __import__("json").loads(act.participated_at_map or "{}")
+                        if not isinstance(pmap, dict):
+                            pmap = {}
+                        pmap[str(account.id)] = datetime.now().isoformat()
+                        act.participated_at_map = __import__("json").dumps(pmap)
+                    except Exception:
+                        pass
                 # 状态语义：所有 active 账号都参与过才置 participated，否则保持 pending
                 active_ids = [a.id for a in db.query(models.Account)
                               .filter_by(status="active").all()]

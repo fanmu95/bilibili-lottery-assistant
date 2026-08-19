@@ -29,6 +29,7 @@ export const accountApi = {
   ackReplyUnread: (id) => http.post(`/accounts/${id}/ack-reply-unread`),
   readSession: (id, talkerId, ackSeqno) => http.post(`/accounts/${id}/sessions/${talkerId}/read`, null, { params: { ack_seqno: ackSeqno || 0 } }),
   exportCookies: (id) => http.get(`/accounts/${id}/export-cookies`),
+  importCookies: (data) => http.post('/accounts/import-cookies', data),
 }
 
 // ---------------- 监控用户（活动发现） ----------------
@@ -103,6 +104,14 @@ export const cleanupApi = {
   run: () => http.post('/cleanup/run'),
   accountDynamics: (id, data) => http.post(`/cleanup/accounts/${id}/dynamics`, data),
   accountProgress: (id) => http.get(`/cleanup/accounts/${id}/progress`),
+}
+
+// ---------------- 版本检查 / 自动更新 ----------------
+export const updateApi = {
+  check: () => http.get('/update/check'),
+  download: () => http.get('/update/download'),
+  progress: () => http.get('/update/progress'),
+  apply: () => http.post('/update/apply'),
 }
 
 export default http

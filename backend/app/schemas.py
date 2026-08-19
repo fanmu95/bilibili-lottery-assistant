@@ -19,6 +19,12 @@ class AccountUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class ImportCookiesRequest(BaseModel):
+    """剪贴板导入账号 cookies（本工具导出格式 [{uid, username, cookies}, ...]）"""
+    cookies_json: Optional[str] = None   # 原始 JSON 文本（优先）
+    items: Optional[list] = None         # 已解析的条目列表（兼容）
+
+
 class MonitorUserCreate(BaseModel):
     uid: str
     monitor_type: str = "repost"

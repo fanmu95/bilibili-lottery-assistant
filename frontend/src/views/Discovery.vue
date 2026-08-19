@@ -91,16 +91,6 @@
         </div>
       </template>
       <el-form inline>
-        <el-form-item label="监控类型">
-          <el-radio-group v-model="addForm.monitor_type">
-            <el-radio-button value="repost">
-              <el-icon><RefreshLeft /></el-icon> 监控用户转发的抽奖活动
-            </el-radio-button>
-            <el-radio-button value="publish">
-              <el-icon><Promotion /></el-icon> 监控用户发布的抽奖活动
-            </el-radio-button>
-          </el-radio-group>
-        </el-form-item>
         <el-form-item label="用户 MID">
           <el-input v-model="addForm.uid" placeholder="B站空间页数字ID，如 38808431" clearable style="width: 260px">
             <template #prepend>UID</template>
@@ -112,8 +102,6 @@
           <el-button :icon="Download" @click="exportUsers">导出</el-button>
         </el-form-item>
       </el-form>
-      <el-alert type="info" :closable="false" show-icon
-        title="监控用户转发的抽奖活动：扫描该用户转发的动态，识别含抽奖关键词的内容；监控用户发布的抽奖活动：扫描该用户自己发布的抽奖/福利内容。添加后可在下方扫描指定用户。" />
     </el-card>
 
     <!-- 监控用户列表 -->
@@ -133,24 +121,21 @@
             </template>
           </div>
           <div>
-            <el-select v-model="filterType" placeholder="类型筛选" clearable size="small" style="width: 160px" @change="load">
-              <el-option label="转发监控" value="repost" />
-              <el-option label="发布监控" value="publish" />
-            </el-select>
-            <el-input v-model="filterKeyword" placeholder="搜索昵称/UID" clearable size="small" style="width: 180px; margin-left: 8px" @keyup.enter="load" @clear="load" />
+            <el-input v-model="filterKeyword" placeholder="搜索昵称/UID" clearable size="small" style="width: 180px" @keyup.enter="load" @clear="load" />
             <el-button size="small" :icon="Search" @click="load">搜索</el-button>
           </div>
         </div>
       </template>
-      <el-table :data="users" v-loading="loading" stripe @selection-change="onSelectionChange">
-        <el-table-column type="selection" width="45" />
+      <el-table :data="pagedUsers" v-loading="loading" stripe row-key="id"
+        @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="45" reserve-selection />
         <el-table-column label="用户" min-width="240">
           <template #default="{ row }">
             <div class="user-cell">
               <el-avatar :size="40" :src="row.avatar"><el-icon><User /></el-icon></el-avatar>
               <div>
                 <div class="uname">{{ row.username }}</div>
-                <div class="uid">UID: {{ row.uid }} · {{ row.monitor_type === 'repost' ? '转发监控' : '发布监控' }}
+                <div class="uid">UID: {{ row.uid }}
                   <template v-if="(row.note || '').includes('职业')">
                     <el-tag v-if="row.status === 'inactive'" size="small" type="danger" effect="plain" class="mr4">职业号·已失效</el-tag>
                     <el-tag v-else size="small" type="warning" effect="plain" class="mr4">职业号</el-tag>
@@ -194,17 +179,16 @@
         </el-table-column>
         <template #empty><el-empty description="暂无监控用户，请在上方添加" /></template>
       </el-table>
+      <div class="table-pagination">
+        <el-pagination v-model:current-page="page" v-model:page-size="pageSize"
+          :total="users.length" :page-sizes="[20, 50, 100]" layout="total, sizes, prev, pager, next, jumper"
+          background />
+      </div>
     </el-card>
 
     <!-- 批量导入 -->
     <el-dialog v-model="batchVisible" title="批量导入监控用户" width="520">
       <el-form label-width="90px">
-        <el-form-item label="监控类型">
-          <el-radio-group v-model="batchForm.monitor_type">
-            <el-radio value="repost">转发监控</el-radio>
-            <el-radio value="publish">发布监控</el-radio>
-          </el-radio-group>
-        </el-form-item>
         <el-form-item label="用户 MID">
           <el-input v-model="batchForm.uidsText" type="textarea" :rows="6"
             placeholder="每行一个 MID，或使用逗号/空格分隔&#10;示例：&#10;38808431&#10;86609988, 21056345" />
@@ -222,7 +206,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Plus, Upload, Search, User, Delete, Link, VideoPlay, VideoPause, RefreshLeft, Promotion, Loading, Download } from '@element-plus/icons-vue'
+import { Plus, Upload, Search, User, Delete, Link, VideoPlay, VideoPause, RefreshLeft, Loading, Download } from '@element-plus/icons-vue'
 import { watchApi, scanApi, settingApi } from '../api'
 
 const users = ref([])
@@ -323,7 +307,6 @@ async function pollScanProgress() {
 function stopScanPolling() { if (scanTimer) { clearInterval(scanTimer); scanTimer = null } }
 
 const addForm = ref({ monitor_type: 'repost', uid: '' })
-const filterType = ref('')
 const filterKeyword = ref('')
 
 const batchVisible = ref(false)
@@ -334,14 +317,23 @@ const batchResultText = computed(() => batchResult.value
   ? `导入完成：新增 ${batchResult.value.added.length} 个，跳过 ${batchResult.value.skipped.length} 个，失败 ${batchResult.value.failed.length} 个`
   : '')
 
+// 列表分页（跨页勾选保留）
+const page = ref(1)
+const pageSize = ref(20)
+const pagedUsers = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return users.value.slice(start, start + pageSize.value)
+})
+
 async function load() {
   loading.value = true
   try {
     const res = await watchApi.list({
-      monitor_type: filterType.value || '',
+      monitor_type: 'repost',
       keyword: filterKeyword.value || '',
     })
     users.value = res.items || []
+    page.value = 1   // 数据重载后回到第一页
   } finally { loading.value = false }
 }
 
@@ -452,6 +444,7 @@ onUnmounted(stopScanPolling)
 
 <style scoped>
 .mt { margin-top: 16px; }
+.table-pagination { display: flex; justify-content: flex-end; margin-top: 12px; }
 .scan-step { font-size: 12px; line-height: 1.4; margin-top: 2px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .header-left { display: flex; align-items: center; gap: 10px; }

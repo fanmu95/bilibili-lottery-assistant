@@ -88,6 +88,21 @@ def extract_comment_oid(detail: dict) -> tuple[str, int]:
     return rid, ctype
 
 
+# 账号级永久限制错误码：被 UP 拉黑（点赞/关注/转发/评论全失败）、
+# 对方隐私设置（仅关注失败，其余动作可能仍可行）
+LIMIT_BLOCKED_CODES = (4128015,)
+LIMIT_NO_FOLLOW_CODES = (22002,)
+
+
+def _limit_tag(code: int) -> str:
+    """按错误码返回限制类型：blocked=被拉黑 / no_follow=隐私设置不能关注 / 空=无"""
+    if code in LIMIT_BLOCKED_CODES:
+        return "blocked"
+    if code in LIMIT_NO_FOLLOW_CODES:
+        return "no_follow"
+    return ""
+
+
 def like_dynamic(client: bili_client.BiliClient, *, dynamic_id: str,
                  csrf: str, referer: str) -> dict:
     """点赞动态，返回 {ok, message}"""
@@ -106,8 +121,12 @@ def like_dynamic(client: bili_client.BiliClient, *, dynamic_id: str,
             return {"ok": True, "action": "like", "message": "点赞成功"}
         if code == 65006:
             return {"ok": True, "action": "like", "message": "已赞过"}
-        return {"ok": False, "action": "like",
-                "message": f"点赞失败 code={code} {_api_message(p)}".strip()}
+        res = {"ok": False, "action": "like",
+               "message": f"点赞失败 code={code} {_api_message(p)}".strip()}
+        _lt = _limit_tag(code)
+        if _lt:
+            res["limit"] = _lt
+        return res
     except Exception as e:
         return {"ok": False, "action": "like", "message": f"点赞异常: {e}"}
 
@@ -128,8 +147,12 @@ def follow_user(client: bili_client.BiliClient, *, uid: str,
             return {"ok": True, "action": "follow", "message": f"关注成功 uid={uid}"}
         if code == 22014:
             return {"ok": True, "action": "follow", "message": f"已关注 uid={uid}"}
-        return {"ok": False, "action": "follow",
-                "message": f"关注失败 code={code} {_api_message(p)}".strip()}
+        res = {"ok": False, "action": "follow",
+               "message": f"关注失败 code={code} {_api_message(p)}".strip()}
+        _lt = _limit_tag(code)
+        if _lt:
+            res["limit"] = _lt
+        return res
     except Exception as e:
         return {"ok": False, "action": "follow", "message": f"关注异常: {e}"}
 
@@ -215,12 +238,14 @@ def execute_participation(
     dry_run: bool = False,
     on_step=None,
 ) -> dict:
-    """执行参与互动（预约/点赞/关注/转发/评论），返回 {results: [...], ok, errors}
+    """执行参与互动（预约/点赞/关注/转发/评论），返回 {results: [...], ok, errors, limits}
 
     steps 可配置要执行的动作顺序；含 "reserve" 时需传 reserve_info（预约类动态：
     点击预约按钮即参与抽奖，预约 + 三连都做）。
     dry_run=True 时只探测状态不真正执行（用于检查/预演）。
     on_step: 可选回调 on_step(step_index, total_steps, action_name, detail)。
+    limits: 账号级永久限制标记列表（blocked=被拉黑 / no_follow=隐私设置不能关注），
+    由上层持久化后用于后续跳过。
     """
     referer = f"https://www.bilibili.com/opus/{dynamic_id}"
     csrf = get_csrf(client)
@@ -231,6 +256,7 @@ def execute_participation(
 
     results = []
     errors = []
+    limits = []
     total = len([s for s in steps
                  if s in ("reserve", "like", "follow", "repost", "comment")])
     idx = 0
@@ -262,7 +288,10 @@ def execute_participation(
         results.append(res)
         if not res.get("ok"):
             errors.append(f"{ACTION_LABELS.get(step, step)}：{res.get('message', '')}")
+            if res.get("limit"):
+                limits.append(res["limit"])
         if not dry_run:
             time.sleep(_action_gap())
 
-    return {"ok": len(errors) == 0, "results": results, "errors": errors}
+    return {"ok": len(errors) == 0, "results": results,
+            "errors": errors, "limits": limits}

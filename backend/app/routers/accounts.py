@@ -48,13 +48,30 @@ def _participation_stats(db) -> dict:
             continue
         if not isinstance(accs, list):
             continue
-        is_today = act.participated_at is not None and act.participated_at >= today_start
+        # 账号级参与时刻（精确）：participated_at_map 优先，缺失用 participated_at 兜底
+        try:
+            pmap = json.loads(act.participated_at_map or "{}")
+            if not isinstance(pmap, dict):
+                pmap = {}
+        except Exception:
+            pmap = {}
+        fallback_today = (act.participated_at is not None
+                          and act.participated_at >= today_start)
         for aid in accs:
             if not isinstance(aid, int):
                 continue
             s = stats.setdefault(aid, {"today": 0, "total": 0})
             s["total"] += 1
-            if is_today:
+            # 该账号今日参与：map 记录时刻在今日 0 点后；map 缺失则用活动完成时间兜底
+            if str(aid) in pmap:
+                try:
+                    t = _dt.fromisoformat(str(pmap[str(aid)]))
+                    if t >= today_start:
+                        s["today"] += 1
+                except Exception:
+                    if fallback_today:
+                        s["today"] += 1
+            elif fallback_today:
                 s["today"] += 1
     return stats
 
@@ -87,6 +104,36 @@ def list_accounts(db: Session = Depends(get_db)):
     return [_ser(a, stats) for a in rows]
 
 
+@router.get("/accounts/{account_id}/home")
+def account_home(account_id: int, db: Session = Depends(get_db)):
+    """该账号的主页链接（用账号 cookie 校验身份后返回真实 uid 主页）。
+
+    返回 {uid, username, home_url, cookie_valid}——
+    cookie 有效则 home_url 用该账号真实 uid；cookie 失效返回 cookie_valid=False
+    提示重新登录（按钮不跳转错误主页）。
+    """
+    acc = db.get(models.Account, account_id)
+    if not acc:
+        raise HTTPException(404, "账号不存在")
+    try:
+        client = bili_client.BiliClient(bili_client.cookies_from_json(acc.cookies))
+        info = client.get_user_info()
+        uid = info.get("uid") or acc.uid
+        return {
+            "uid": uid,
+            "username": info.get("username") or acc.username,
+            "home_url": f"https://space.bilibili.com/{uid}",
+            "cookie_valid": True,
+        }
+    except Exception:
+        return {
+            "uid": acc.uid,
+            "username": acc.username,
+            "home_url": f"https://space.bilibili.com/{acc.uid}",
+            "cookie_valid": False,
+        }
+
+
 @router.get("/accounts/{account_id}/export-cookies")
 def export_account_cookies(account_id: int, db: Session = Depends(get_db)):
     """导出指定账号的登录 cookies（JSON，迁移到其他机器/exe/Docker 部署时用）。
@@ -105,6 +152,60 @@ def export_account_cookies(account_id: int, db: Session = Depends(get_db)):
         data,
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@router.post("/accounts/import-cookies")
+def import_account_cookies(body: schemas.ImportCookiesRequest,
+                           db: Session = Depends(get_db)):
+    """剪贴板导入账号 cookies（本工具导出格式）。
+
+    输入：{"cookies_json": "[{uid, username, cookies}, ...]"}（或 items 列表）。
+    每个条目：cookies 可为 JSON 字符串或对象；逐个用 nav 接口验证身份，
+    成功后按 uid 去重创建/更新账号（复用 _login_success 完整入库逻辑）。
+    返回：{ok, imported: [...], failed: [{index, reason}]}
+    """
+    # 解析输入为条目列表
+    raw = body.cookies_json or ""
+    items = body.items or []
+    if not items and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                parsed = [parsed]
+            items = parsed if isinstance(parsed, list) else []
+        except Exception:
+            return {"ok": False, "imported": [], "failed": [
+                {"index": 0, "reason": "JSON 解析失败，请粘贴本工具导出的完整 JSON"}]}
+    if not items:
+        return {"ok": False, "imported": [], "failed": [
+            {"index": 0, "reason": "未解析到任何账号数据"}]}
+
+    imported, failed = [], []
+    for idx, it in enumerate(items):
+        if not isinstance(it, dict):
+            failed.append({"index": idx, "reason": "条目不是对象"})
+            continue
+        cookies = it.get("cookies") or it.get("cookie") or ""
+        if isinstance(cookies, str):
+            try:
+                cookies = json.loads(cookies)
+            except Exception:
+                cookies = {"raw": cookies}   # 非 JSON 字符串按原始文本塞入
+        if not isinstance(cookies, dict) or not cookies.get("SESSDATA"):
+            failed.append({"index": idx, "reason": "缺少 SESSDATA（无效 cookies）"})
+            continue
+        try:
+            client = bili_client.BiliClient(dict(cookies))
+            info = client.get_user_info()
+            _login_success(db, {}, info, cookies)
+            imported.append({"uid": str(info["uid"]),
+                             "username": info["username"],
+                             "status": "active"})
+        except Exception as e:
+            failed.append({"index": idx, "reason": f"验证失败: {str(e)[:60]}"})
+    db.commit()
+    return {"ok": bool(imported) or not failed,
+            "imported": imported, "failed": failed}
 
 
 @router.put("/accounts/{account_id}")
@@ -386,8 +487,62 @@ def get_unread(account_id: int, db: Session = Depends(get_db)):
             "sys_count": sys_count,
         }
     except Exception:
-        return {"dm_count": 3, "at_count": 2, "reply_count": 1,
-                "like_count": 5, "sys_count": 1}
+        # 接口异常（B站风控/网络波动/cookie 时效）时不返回假未读数——
+        # 真实数据拉不到就按 0 处理，避免误导显示"有未读"（宁缺毋滥）
+        return {"dm_count": 0, "at_count": 0, "reply_count": 0,
+                "like_count": 0, "sys_count": 0}
+
+
+@router.get("/emotes")
+def get_emotes(db: Session = Depends(get_db)):
+    """B 站官方表情映射 {text: url}（评论/私信渲染用）。
+
+    用 active 账号 cookie 拉 x/emote/user/panel/web（business=reply），
+    结果缓存到 Setting（emote_map，24h 过期）；拉取失败返回缓存或空映射。
+    """
+    import time as _time
+    # 读缓存
+    try:
+        row = db.query(models.Setting).filter_by(key="emote_map").first()
+        if row and row.value:
+            cached = json.loads(row.value)
+            if isinstance(cached, dict) and _time.time() - float(cached.get("ts") or 0) < 86400:
+                return {"emotes": cached.get("map", {}), "cached": True}
+    except Exception:
+        pass
+    # 拉取 B 站 emote 面板
+    emotes = {}
+    try:
+        acc = (db.query(models.Account).filter_by(status="active")
+               .order_by(models.Account.id.asc()).first())
+        if acc and acc.cookies:
+            client = bili_client.BiliClient(bili_client.cookies_from_json(acc.cookies))
+            r = client.session.get(
+                "https://api.bilibili.com/x/emote/user/panel/web",
+                params={"business": "reply"}, timeout=10)
+            d = r.json()
+            if d.get("code") == 0:
+                for pkg in (d.get("data") or {}).get("packages") or []:
+                    for e in pkg.get("emote") or []:
+                        t = str(e.get("text") or "").strip()
+                        u = str(e.get("url") or "")
+                        if t.startswith("[") and u:
+                            emotes[t] = u
+    except Exception:
+        pass
+    # 写缓存（即使为空也缓存，避免频繁拉取）
+    try:
+        val = json.dumps({"ts": _time.time(), "map": emotes}, ensure_ascii=False)
+        if not row:
+            row = db.query(models.Setting).filter_by(key="emote_map").first()
+        if row:
+            row.value = val
+        else:
+            db.add(models.Setting(key="emote_map", value=val))
+        db.commit()
+    except Exception:
+        pass
+    return {"emotes": emotes, "cached": False}
 
 
 @router.post("/accounts/{account_id}/ack-at-unread")
@@ -434,22 +589,39 @@ def read_session(account_id: int, talker_id: str,
 
 @router.get("/accounts/{account_id}/messages/at")
 def get_at_messages(account_id: int, db: Session = Depends(get_db)):
-    """获取该账号的 @提及 列表"""
+    """获取该账号的 @提及 列表（附带关联抽奖活动标题）"""
     acc = db.get(models.Account, account_id)
     if not acc:
         raise HTTPException(404, "账号不存在")
     client = bili_client.BiliClient(bili_client.cookies_from_json(acc.cookies))
-    return {"items": client.get_at_messages()}
+    return {"items": _attach_activity(db, client.get_at_messages())}
 
 
 @router.get("/accounts/{account_id}/messages/reply")
 def get_reply_messages(account_id: int, db: Session = Depends(get_db)):
-    """获取该账号的 评论回复 列表"""
+    """获取该账号的 评论回复 列表（附带关联抽奖活动标题）"""
     acc = db.get(models.Account, account_id)
     if not acc:
         raise HTTPException(404, "账号不存在")
     client = bili_client.BiliClient(bili_client.cookies_from_json(acc.cookies))
-    return {"items": client.get_reply_messages()}
+    return {"items": _attach_activity(db, client.get_reply_messages())}
+
+
+def _attach_activity(db: Session, items: list) -> list:
+    """按 dynamic_id 匹配 Activity 表，附带关联活动标题（无命中置空）"""
+    if not items:
+        return items
+    dyn_ids = [str(it.get("dynamic_id") or "") for it in items if it.get("dynamic_id")]
+    act_map = {}
+    if dyn_ids:
+        acts = (db.query(models.Activity)
+                .filter(models.Activity.activity_id.in_(dyn_ids))
+                .all())
+        act_map = {str(a.activity_id): a for a in acts}
+    for it in items:
+        a = act_map.get(str(it.get("dynamic_id") or ""))
+        it["activity_title"] = a.title if a else ""
+    return items
 
 
 @router.get("/accounts/{account_id}/messages")

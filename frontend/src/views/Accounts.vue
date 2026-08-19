@@ -17,7 +17,10 @@
       <template #header>
         <div class="card-header">
           <span>账号列表</span>
-          <el-button :icon="Refresh" size="small" @click="load">刷新</el-button>
+          <div>
+            <el-button :icon="Download" size="small" @click="openImportDialog">导入 Cookie</el-button>
+            <el-button :icon="Refresh" size="small" @click="load">刷新</el-button>
+          </div>
         </div>
       </template>
       <el-table :data="accounts" v-loading="loading" stripe>
@@ -46,34 +49,32 @@
         </el-table-column>
         <el-table-column label="等级" width="80">
           <template #default="{ row }">
-            <el-tag size="small" effect="plain">Lv{{ row.level }}</el-tag>
+            <span>Lv{{ row.level }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="coins" label="B币" width="80" />
         <el-table-column label="今日参与" width="90" align="center">
           <template #default="{ row }">
-            <el-tag type="primary" size="small">{{ row.today_participated ?? 0 }}</el-tag>
+            <span>{{ row.today_participated ?? 0 }}</span>
           </template>
         </el-table-column>
         <el-table-column label="累计参与" width="90" align="center">
           <template #default="{ row }">
-            <el-tag type="success" size="small">{{ row.total_participated ?? 0 }}</el-tag>
+            <span>{{ row.total_participated ?? 0 }}</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'active' ? 'success' : 'danger'" size="small">
-              {{ row.status === 'active' ? '已登录' : '未登录' }}
-            </el-tag>
+            <span>{{ row.status === 'active' ? '已登录' : '未登录' }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="last_login_at" label="最近登录" width="170" />
         <el-table-column label="操作" width="560" fixed="right">
           <template #default="{ row }">
             <div class="ops">
-              <el-button size="small" type="primary" plain :icon="ChatDotRound"
+              <el-button size="small" type="danger" plain :icon="ChatDotRound"
                 :disabled="row.status !== 'active'" @click="openMessages(row)">私信</el-button>
-              <el-button size="small" :icon="Bell" :disabled="row.status !== 'active'"
+              <el-button size="small" type="primary" plain :icon="Bell" :disabled="row.status !== 'active'"
                 @click="openMentions(row)">艾特</el-button>
               <el-button size="small" :icon="Refresh" :disabled="row.status !== 'active'" @click="refreshAccount(row)">刷新</el-button>
               <el-button size="small" :icon="Delete" :disabled="row.status !== 'active'" @click="openCleanup(row)">清理</el-button>
@@ -106,8 +107,25 @@
       </div>
     </el-dialog>
 
+    <!-- 导入 Cookie 弹窗（剪贴板导入账号） -->
+    <el-dialog v-model="importVisible" title="导入账号 Cookie" width="560" :close-on-click-modal="false">
+      <p class="dim" style="margin: 0 0 8px">
+        粘贴本工具导出的 Cookie JSON（先点账号行「Cookie」按钮复制，再粘贴到此处）：
+      </p>
+      <el-input v-model="importText" type="textarea" :rows="8" placeholder='[{"uid":"...","username":"...","cookies":"{...}"}]' />
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px">
+        <el-button @click="importVisible = false">取消</el-button>
+        <el-button type="primary" :loading="importLoading" @click="doImportCookies">导入</el-button>
+      </div>
+    </el-dialog>
+
     <!-- 私信回复弹窗 -->
     <el-dialog v-model="msgVisible" :title="`私信回复 - ${msgAccount?.username || ''}`" width="760" top="6vh">
+      <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+        <el-button size="small" type="primary" plain :loading="ackSessionsLoading" @click="ackAllSessions">
+          全部已读（私信会话）
+        </el-button>
+      </div>
       <div class="msg-body">
         <div class="msg-left">
           <el-input v-model="msgKeyword" placeholder="搜索会话..." clearable size="small" class="mb8" />
@@ -118,7 +136,7 @@
               <el-avatar :size="36" :src="s.avatar"><el-icon><User /></el-icon></el-avatar>
               <div class="session-info">
                 <div class="s-name">{{ s.name }}</div>
-                <div class="s-preview">{{ s.last_message }}</div>
+                <div class="s-preview" v-html="emoteHtml(s.last_message)"></div>
               </div>
               <el-badge v-if="s.unread > 0" :value="s.unread" type="danger" />
             </div>
@@ -128,7 +146,7 @@
         <div class="msg-right">
           <div class="thread" v-loading="threadLoading">
             <div v-for="(m, i) in thread" :key="i" class="bubble-row" :class="m.sender">
-              <div class="bubble" :class="m.sender">{{ m.content }}</div>
+              <div class="bubble" :class="m.sender" v-html="emoteHtml(m.content)"></div>
               <div class="b-time">{{ m.time }} · {{ m.sender_name }}</div>
             </div>
             <el-empty v-if="!threadLoading && thread.length === 0" description="点击左侧会话查看消息" :image-size="60" />
@@ -148,13 +166,21 @@
         <el-tab-pane :label="`被@提及 (${atItems.length})`" name="at">
           <div v-loading="mentionLoading" class="mention-list">
             <div v-for="(m, i) in atItems" :key="i" class="mention-item">
-              <el-avatar :size="34" :src="m.from_avatar"><el-icon><User /></el-icon></el-avatar>
+              <a v-if="m.from_uid" :href="`https://space.bilibili.com/${m.from_uid}`" target="_blank" rel="noopener"
+                 class="mention-avatar-link" :title="`打开 ${m.from_user || m.from_uid} 的主页`">
+                <el-avatar :size="34" :src="m.from_avatar" class="mention-avatar"><el-icon><User /></el-icon></el-avatar>
+              </a>
+              <el-avatar v-else :size="34" :src="m.from_avatar" class="mention-avatar"><el-icon><User /></el-icon></el-avatar>
               <div class="mention-info">
                 <div class="mention-head">
                   <span class="mention-user">{{ m.from_user || m.from_uid }}</span>
                   <span class="mention-time dim">{{ m.time }}</span>
                 </div>
-                <div class="mention-content">{{ m.content || '（无文本内容）' }}</div>
+                <div class="mention-origin" v-if="m.title || m.activity_title">
+                  <el-tag v-if="m.activity_title" size="small" type="warning" effect="plain" class="mention-activity-tag">活动</el-tag>
+                  <span class="mention-origin-text">{{ m.activity_title || m.title }}</span>
+                </div>
+                <div class="mention-content" v-html="m.content ? emoteHtml(m.content) : '（无文本内容）'"></div>
                 <a v-if="m.link" :href="m.link" target="_blank" rel="noopener" class="mention-link">查看原动态 →</a>
               </div>
             </div>
@@ -164,13 +190,21 @@
         <el-tab-pane :label="`评论回复 (${replyItems.length})`" name="reply">
           <div v-loading="mentionLoading" class="mention-list">
             <div v-for="(m, i) in replyItems" :key="i" class="mention-item">
-              <el-avatar :size="34" :src="m.from_avatar"><el-icon><User /></el-icon></el-avatar>
+              <a v-if="m.from_uid" :href="`https://space.bilibili.com/${m.from_uid}`" target="_blank" rel="noopener"
+                 class="mention-avatar-link" :title="`打开 ${m.from_user || m.from_uid} 的主页`">
+                <el-avatar :size="34" :src="m.from_avatar" class="mention-avatar"><el-icon><User /></el-icon></el-avatar>
+              </a>
+              <el-avatar v-else :size="34" :src="m.from_avatar" class="mention-avatar"><el-icon><User /></el-icon></el-avatar>
               <div class="mention-info">
                 <div class="mention-head">
                   <span class="mention-user">{{ m.from_user || m.from_uid }}</span>
                   <span class="mention-time dim">{{ m.time }}</span>
                 </div>
-                <div class="mention-content">{{ m.content || '（无文本内容）' }}</div>
+                <div class="mention-origin" v-if="m.title || m.activity_title">
+                  <el-tag v-if="m.activity_title" size="small" type="warning" effect="plain" class="mention-activity-tag">活动</el-tag>
+                  <span class="mention-origin-text">{{ m.activity_title || m.title }}</span>
+                </div>
+                <div class="mention-content" v-html="m.content ? emoteHtml(m.content) : '（无文本内容）'"></div>
                 <a v-if="m.link" :href="m.link" target="_blank" rel="noopener" class="mention-link">查看原动态 →</a>
               </div>
             </div>
@@ -278,6 +312,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { Plus, Refresh, Delete, User, ChatDotRound, Camera, SwitchButton, Bell, Download } from '@element-plus/icons-vue'
 import { accountApi, cleanupApi, settingApi } from '../api'
+import { emoteHtml, loadEmotes } from '../utils/emote'
 
 const accounts = ref([])
 const loading = ref(false)
@@ -338,15 +373,59 @@ async function exportCookies(row) {
   try {
     const data = await accountApi.exportCookies(row.id)
     const text = JSON.stringify(data, null, 2)
-    const blob = new Blob([text], { type: 'application/json;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `bili_cookies_${row.username || row.uid}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    ElMessage.success(`已导出 ${row.username} 的 cookies`)
+    try {
+      await navigator.clipboard.writeText(text)
+      ElMessage.success(`已复制 ${row.username} 的 cookies 到剪贴板`)
+    } catch (e) {
+      // 剪贴板 API 不可用（非 https/localhost）时兜底 textarea 复制
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      ElMessage.success(`已复制 ${row.username} 的 cookies（兼容模式）`)
+    }
   } catch (e) { /* 拦截器已提示 */ }
+}
+
+// ---------- 导入 Cookie（剪贴板 JSON → 后端验证 → 按 uid 去重建/更新账号） ----------
+const importVisible = ref(false)
+const importText = ref('')
+const importLoading = ref(false)
+function openImportDialog() {
+  importText.value = ''
+  importVisible.value = true
+}
+async function doImportCookies() {
+  const raw = (importText.value || '').trim()
+  if (!raw) {
+    ElMessage.warning('请先粘贴 Cookie JSON')
+    return
+  }
+  importLoading.value = true
+  try {
+    const res = await accountApi.importCookies({ cookies_json: raw })
+    const imported = res.imported || []
+    const failed = res.failed || []
+    if (res.ok === false && imported.length === 0) {
+      ElMessage.error(failed[0]?.reason || '导入失败')
+      return
+    }
+    if (imported.length > 0) {
+      ElMessage.success(`成功导入 ${imported.length} 个账号：${imported.map(i => i.username).join('、')}`)
+      importVisible.value = false
+      load()
+      refreshUnreadBadges()
+    }
+    if (failed.length > 0) {
+      ElMessage.warning(`${failed.length} 个失败：${failed[0].reason}`)
+    }
+  } catch (e) {
+    ElMessage.error('导入失败：' + (e?.message || '请检查 JSON 格式'))
+  } finally {
+    importLoading.value = false
+  }
 }
 
 // ---------- 清理动态（账号维度）：条件设置 → 统计 → 删除 ----------
@@ -702,6 +781,33 @@ async function openMentions(row) {
   }
 }
 
+// 私信会话「全部已读」：遍历所有未读会话逐个标记已读（read_session），角标立即清空
+const ackSessionsLoading = ref(false)
+async function ackAllSessions() {
+  if (!msgAccount.value) return
+  const id = msgAccount.value.id
+  const unreadOnes = (sessions.value || []).filter(s => (s.unread || 0) > 0)
+  if (unreadOnes.length === 0) {
+    ElMessage.info('当前没有未读会话')
+    return
+  }
+  ackSessionsLoading.value = true
+  try {
+    let okCnt = 0
+    for (const s of unreadOnes) {
+      try {
+        await accountApi.readSession(id, s.talker_id, s.last_seqno)
+        s.unread = 0
+        okCnt++
+      } catch (e) { /* 单个失败不中断 */ }
+    }
+    ElMessage.success(`已将 ${okCnt}/${unreadOnes.length} 个私信会话标记为已读`)
+    refreshUnreadBadges()
+  } finally {
+    ackSessionsLoading.value = false
+  }
+}
+
 async function openThread(s) {
   currentTalker.value = s.talker_id
   threadLoading.value = true
@@ -720,6 +826,9 @@ async function openThread(s) {
   }
 }
 
+// 点击评论人头像 → 新标签打开其 B 站主页（uid 为空时不响应）
+// 注：改用原生 <a href> 链接实现（见模板），window.open 会被浏览器弹窗拦截
+
 async function ackAllMentions() {
   if (!mentionAccount.value) return
   const id = mentionAccount.value.id
@@ -732,7 +841,8 @@ async function ackAllMentions() {
 }
 
 onMounted(() => {
-  load()              // 内部含 refreshUnreadBadges()：进入页面即检测红点
+  loadEmotes()       // 加载 B 站官方表情映射（评论/私信渲染）
+  load()             // 内部含 refreshUnreadBadges()：进入页面即检测红点
   startDmPolling()
   startUnreadBadgePolling()
 })
@@ -766,7 +876,7 @@ onUnmounted(() => {
   line-height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: #f56c6c;
+  background: #409eff;   /* 右上角：被@未读（蓝色，对应艾特按钮） */
   color: #fff;
   font-size: 11px;
   font-weight: 600;
@@ -775,12 +885,12 @@ onUnmounted(() => {
   box-shadow: 0 0 0 1px var(--el-bg-color);
   z-index: 2;
 }
-/* 右下角：私信未读（蓝色） */
+/* 右下角：私信未读（红色，对应私信按钮） */
 .avatar-badge-dm {
   right: -2px;
   top: auto;
   bottom: -2px;
-  background: #409eff;
+  background: #f56c6c;
 }
 .uid { font-size: 12px; color: var(--el-text-color-secondary); }
 .qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 10px 0; }
@@ -789,11 +899,16 @@ onUnmounted(() => {
 .qr-tips { font-size: 12px; color: var(--el-text-color-secondary); }
 .mention-list { max-height: 55vh; overflow-y: auto; }
 .mention-item { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--el-border-color-lighter); }
+.mention-avatar-link { display: inline-flex; cursor: pointer; text-decoration: none; border-radius: 50%; line-height: 0; }
+.mention-avatar-link:hover .mention-avatar { opacity: 0.85; }
 .mention-info { flex: 1; min-width: 0; }
 .mention-head { display: flex; align-items: center; gap: 8px; }
 .mention-user { font-weight: 600; font-size: 13px; }
 .mention-time { font-size: 12px; }
 .mention-content { font-size: 13px; margin-top: 3px; line-height: 1.5; word-break: break-all; }
+.mention-origin { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12px; color: var(--el-text-color-secondary); }
+.mention-origin-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-activity-tag { flex-shrink: 0; }
 .mention-link { font-size: 12px; color: var(--el-color-primary); text-decoration: none; }
 .action-card { display: flex; align-items: center; height: 100%; }
 .ops { display: flex; align-items: center; gap: 4px; white-space: nowrap; }

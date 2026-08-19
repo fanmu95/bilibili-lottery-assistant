@@ -34,8 +34,71 @@ DEFAULT_SETTINGS = {
         "如果不是输出 {\"is_lottery\": false}。只输出 JSON。"),
     "llm_model_overrides": "{}",             # {model: {temperature,max_tokens,top_p,system_prompt}}
     # ---- 参与文案（对齐 bilibinggo participate-text）----
-    "participate_text": "关注+转发，支持一下，谢谢！",
-    "participate_text_mode": "custom",       # custom / random_comment / llm_generate / random（随机混合）
+    # 自定义文案池：多行文本，一行一条评论（custom/random 模式从此随机挑，可随时编辑热更新）
+    "participate_text": (
+        "蹲一个，这个看起来真不错\n"
+        "哇这个可以啊，支持一下 [打call]\n"
+        "质感看着挺好的，关注了\n"
+        "这波福利诚意满满，冲 [doge]\n"
+        "来了来了，支持一波\n"
+        "看着有点心动，先留个脚印 [星星眼]\n"
+        "正好最近想入手，蹲一个\n"
+        "颜值在线，属实是爱了 [喜欢]\n"
+        "路过支持一下，祝活动顺利\n"
+        "这个真不错，先关注了\n"
+        "好家伙，这福利可以的 [妙啊]\n"
+        "围观群众路过，支持 [吃瓜]\n"
+        "质量看着不错，支持一下\n"
+        "好东西要分享，转给朋友看看\n"
+        "最近正缺这个，来碰碰运气\n"
+        "支持一下，做得挺好\n"
+        "这个可以有，关注了\n"
+        "感觉挺用心的，支持\n"
+        "不错不错，观望一下\n"
+        "看着挺香的，蹲个结果\n"
+        "这波操作可以，点赞 [OK]\n"
+        "来得早不如来得巧，支持\n"
+        "心动了，蹲一个 [doge]\n"
+        "支持支持，等后续\n"
+        "好运连连\n"
+        "抽我\n"
+        "好运\n"
+        "蹲\n"
+        "冲\n"
+        "羡慕了\n"
+        "想要\n"
+        "排一个\n"
+        "带带我\n"
+        "沾沾喜气\n"
+        "锦鲤附体\n"
+        "好运加持\n"
+        "试试手气\n"
+        "随缘\n"
+        "前排占座\n"
+        "凑个热闹\n"
+        "666\n"
+        "爱了爱了\n"
+        "欧皇保佑\n"
+        "抽中我\n"
+        "选我选我\n"
+        "就决定是我了\n"
+        "蹭蹭欧气\n"
+        "坐等欧气\n"
+        "好运常伴\n"
+        "冲鸭\n"
+        "占楼\n"
+        "蹲住\n"
+        "码住\n"
+        "碰碰运气\n"
+        "来一个\n"
+        "眼馋\n"
+        "馋了\n"
+        "沾光\n"
+        "借点欧气\n"
+        "祈福\n"
+        "想中一次\n"
+        "试试看"),
+    "participate_text_mode": "custom",       # custom / llm_generate / random（随机混合）
     # 注：参与文案统一由后台线程预生成评论池（参与时秒取，无需生成时机设置）
     # ---- 扫描与调度 ----
     "scan_interval": 60,                     # 自动扫描间隔（分钟）
@@ -49,12 +112,6 @@ DEFAULT_SETTINGS = {
     "skip_charge_lottery": True,             # 充电抽奖自动跳过（对齐 bilibinggo）
     "auto_pro_scan_enabled": True,           # 自动模式开关：轮次冷却期是否扫描职业号（错峰执行）
     "monitor_empty_scan_remove": 3,          # 监控用户连续 N 次扫描无活动 → 标记失效剔除（0=不启用）
-    # ---- 转发动态清理（按结束日期，白名单保护）----
-    "cleanup_enabled": False,                # 清理开关：结束日期超 N 天的转发活动自动删除
-    "cleanup_end_days": 7,                   # 结束日期距今超过 N 天才清理（此期间自行检查中奖，0=结束即可清理）
-    "cleanup_whitelist": "[]",               # 白名单：中奖动态 id 列表（JSON 数组），清理时跳过不删
-    "cleanup_scan_gap": 1.0,                 # 翻页间隔（秒）：查找转发动态时每页间隔，防风控
-    "cleanup_auto_interval_min": 0,          # 自动清理间隔（分钟，0=仅手动触发）
     # ---- 防风控 ----
     "daily_participate_limit": 100,          # 每账号每日参与上限（防被标记）
     "action_interval_min": 1.5,              # 动作最小间隔（秒，随机抖动）
@@ -67,6 +124,8 @@ DEFAULT_SETTINGS = {
     "dm_check_interval_min": 30,             # 私信检测间隔（分钟，默认 30）
     "dm_check_start": "08:00",               # 检测开始时间（白名单，默认早上 08:00）
     "dm_check_end": "22:00",                 # 检测结束时间（白名单，默认晚上 22:00）
+    # ---- 版本检测 ----
+    "update_check_enabled": True,            # 是否检测新版本（关闭后不再提醒/展示新版本）
 }
 
 

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from .database import Base, engine, SessionLocal, get_db
 from . import models
-from .routers import accounts, activities, auto, cleanup, logs, monitor, scan, settings
+from .routers import accounts, activities, auto, cleanup, logs, monitor, scan, settings, update
 from .services import bili_client
 
 Base.metadata.create_all(bind=engine)
@@ -34,6 +34,9 @@ def migrate():
             conn.execute("ALTER TABLE activities ADD COLUMN comment_text TEXT DEFAULT ''")
         if "reviewed_at" not in cols:
             conn.execute("ALTER TABLE activities ADD COLUMN reviewed_at DATETIME")
+        if "participated_at_map" not in cols:
+            conn.execute(
+                "ALTER TABLE activities ADD COLUMN participated_at_map TEXT DEFAULT '{}'")
         # 回填：旧数据无结束时间，默认 = 发布时间 + 7 天
         conn.execute(
             "UPDATE activities SET end_time = datetime(publish_time, '+7 day') "
@@ -68,6 +71,7 @@ app.include_router(activities.router)
 app.include_router(logs.router)
 app.include_router(settings.router)
 app.include_router(scan.router)
+app.include_router(update.router)
 app.include_router(auto.router)
 app.include_router(cleanup.router)
 
@@ -133,9 +137,13 @@ if _DIST:
         if exc.status_code == 404 and not request.url.path.startswith("/api"):
             rel = request.url.path.lstrip("/")
             f = os.path.join(_DIST, rel)
+            # index.html 不缓存：dist 重建后 chunk 文件名变化，缓存旧 index.html
+            # 会引用已删除的旧 chunk 导致前端资源 404/渲染异常
+            _headers = {"Cache-Control": "no-cache"}
             if rel and os.path.isfile(f):
-                return FileResponse(f)
-            return FileResponse(os.path.join(_DIST, "index.html"))
+                return FileResponse(f, headers=_headers)
+            return FileResponse(os.path.join(_DIST, "index.html"),
+                                headers=_headers)
         return JSONResponse({"detail": getattr(exc, "detail", "Not Found")},
                             status_code=exc.status_code)
 

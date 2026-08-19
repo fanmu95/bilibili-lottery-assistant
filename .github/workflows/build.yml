@@ -70,6 +70,8 @@ jobs:
         shell: pwsh
         run: |
           $ver = if ($env:GITHUB_REF_NAME -match '^v') { $env:GITHUB_REF_NAME } else { "dev-$($env:GITHUB_SHA.Substring(0,7))" }
+          # 写入版本文件（随包，供运行时版本检查）
+          Set-Content -Path "dist_win/LotteryAssistant/version.json" -Value "{`"version`":`"$ver`"}" -Encoding UTF8
           $zip = "lottery-assistant-$ver-windows-x64.zip"
           Write-Host "打包产物: $zip"
           Compress-Archive -Path "dist_win/LotteryAssistant/*" -DestinationPath $zip -Force

@@ -323,10 +323,8 @@ class BiliClient:
         """抓取监控用户的抽奖活动（两阶段：收集动态 id -> 详情取正文）。
 
         stop_callback：可选回调，每页/每条处理前检查（True=请求停止，提前返回）。
-        source_type=repost（默认，对齐 bilibinggo）：监控用户**转发**的抽奖活动，
+        source_type=repost（对齐 bilibinggo）：监控用户**转发**的抽奖活动，
         只收集 DYNAMIC_TYPE_FORWARD 的转发原动态 id（author 为原 UP 主）。
-        source_type=publish：监控用户**自己发布**的抽奖活动，收集用户自己发布的
-        图文/文字/视频/互动抽奖卡片等动态（排除转发）。
 
         时间窗口内去重收集；详情正文关键词初筛 + 官方 lottery_notice 探测后
         返回活动 dict 列表。only_lottery=False 返回全部并标注 is_lottery
@@ -337,7 +335,6 @@ class BiliClient:
         seen = set()
         now_ts = time.time()
         lower = now_ts - since_days * 86400
-        is_publish = str(source_type) == "publish"
         try:
             offset = ""
             for _ in range(max_pages):
@@ -382,51 +379,28 @@ class BiliClient:
                     if not isinstance(item, dict):
                         continue
                     itype = item.get("type") or ""
-                    if is_publish:
-                        # publish：只收集用户自己发布的动态（排除转发）
-                        if itype == "DYNAMIC_TYPE_FORWARD":
-                            continue
-                        pub_ts = self._extract_feed_pub_ts(item)
-                        if pub_ts is not None and pub_ts < lower:
-                            reached_older = True
-                            continue
-                        oid = str(item.get("id_str") or "").strip()
-                        if not oid or oid in seen:
-                            continue
-                        seen.add(oid)
-                        mods = item.get("modules") or {}
-                        oauthor = mods.get("module_author") or {}
-                        ostats = mods.get("module_stat") or {}
-                        links.append({
-                            "dynamic_id": oid,
-                            "author_uid": str(oauthor.get("mid", "")) or str(uid),
-                            "author_name": oauthor.get("name", "") or username,
-                            "pub_ts": pub_ts or int(now_ts),
-                            "repost_count": ostats.get("forward", 0) or 0,
-                        })
-                    else:
-                        # repost：只收集转发的原动态 id
-                        if itype != "DYNAMIC_TYPE_FORWARD":
-                            continue
-                        pub_ts = self._extract_feed_pub_ts(item)
-                        if pub_ts is not None and pub_ts < lower:
-                            reached_older = True
-                            continue
-                        orig = item.get("orig") or {}
-                        oid = str(orig.get("id_str") or "").strip()
-                        if not oid or oid in seen:
-                            continue
-                        seen.add(oid)
-                        orig_mods = orig.get("modules") or {}
-                        oauthor = orig_mods.get("module_author") or {}
-                        ostats = orig_mods.get("module_stat") or {}
-                        links.append({
-                            "dynamic_id": oid,
-                            "author_uid": str(oauthor.get("mid", "")) or str(uid),
-                            "author_name": oauthor.get("name", "") or username,
-                            "pub_ts": pub_ts or int(now_ts),
-                            "repost_count": ostats.get("forward", 0) or 0,
-                        })
+                    # repost：只收集转发的原动态 id
+                    if itype != "DYNAMIC_TYPE_FORWARD":
+                        continue
+                    pub_ts = self._extract_feed_pub_ts(item)
+                    if pub_ts is not None and pub_ts < lower:
+                        reached_older = True
+                        continue
+                    orig = item.get("orig") or {}
+                    oid = str(orig.get("id_str") or "").strip()
+                    if not oid or oid in seen:
+                        continue
+                    seen.add(oid)
+                    orig_mods = orig.get("modules") or {}
+                    oauthor = orig_mods.get("module_author") or {}
+                    ostats = orig_mods.get("module_stat") or {}
+                    links.append({
+                        "dynamic_id": oid,
+                        "author_uid": str(oauthor.get("mid", "")) or str(uid),
+                        "author_name": oauthor.get("name", "") or username,
+                        "pub_ts": pub_ts or int(now_ts),
+                        "repost_count": ostats.get("forward", 0) or 0,
+                    })
                 if reached_older:
                     break               # 已到时间窗口边界，不再翻更早的页
                 if not data.get("has_more"):
@@ -1173,7 +1147,14 @@ class BiliClient:
             return ""
 
     def _fetch_msgfeed(self, kind: str, limit: int = 30) -> list:
-        """拉取消息中心列表（kind: at=@提及 / reply=评论回复）"""
+        """拉取消息中心列表（kind: at=@提及 / reply=评论回复）。
+
+        字段对齐 msgfeed 实际返回（2026-08 实测）：
+        - 时间：reply 用顶层 reply_time；at 用顶层 at_time
+        - 回复者：user.nickname / user.mid（不是 uname/uid）
+        - 评论内容：item.source_content（对方回复）→ root_reply_content → title
+        - 原动态：item.title（标题）+ item.uri（完整链接，opus/视频均可）
+        """
         url = f"{BASE}/x/msgfeed/{kind}"
         try:
             r = self.session.get(url, params={"build": 0, "mobi_app": "web"},
@@ -1186,20 +1167,40 @@ class BiliClient:
             for it in items[:limit]:
                 user = it.get("user") or {}
                 item = it.get("item") or {}
-                # 评论回复：评论内容在 reply.message / item
                 reply = it.get("reply") or {}
-                content = (reply.get("message") or item.get("content")
+                # 评论回复的内容：source_content 是对方回复我的内容（如 "[大笑][大笑]"），
+                # 无则用 root_reply_content（原评论内容）或 message / title 兜底
+                content = (item.get("source_content")
+                           or item.get("root_reply_content")
+                           or reply.get("message")
+                           or item.get("message")
+                           or item.get("content")
                            or item.get("title") or it.get("content") or "")
-                # 动态链接（id_str 是动态 id）
-                dyn_id = str(item.get("id_str") or item.get("id") or "")
-                link = f"https://www.bilibili.com/opus/{dyn_id}" if dyn_id else ""
+                # 原动态链接（item.uri 完整：opus 动态 / video 视频），提取动态 id 供活动关联
+                uri = str(item.get("uri") or "")
+                link = uri or ""
+                dyn_id = ""
+                m = __import__("re").search(r"opus/(\d+)", uri)
+                if m:
+                    dyn_id = m.group(1)
+                elif item.get("source_id"):
+                    dyn_id = str(item.get("source_id"))
+                elif item.get("subject_id"):
+                    dyn_id = str(item.get("subject_id"))
+                # 时间：reply 用 reply_time，at 用 at_time
+                ts = (it.get("reply_time") if kind == "reply"
+                      else it.get("at_time")) or it.get("ctime") or 0
                 out.append({
-                    "time": self._msg_time(it.get("at_time") or it.get("ctime") or 0),
-                    "from_user": user.get("uname", ""),
-                    "from_uid": str(user.get("uid", "") or ""),
+                    "time": self._msg_time(ts),
+                    "from_user": user.get("nickname")
+                                 or user.get("uname") or "",
+                    "from_uid": str(user.get("mid")
+                                    or user.get("uid") or ""),
                     "from_avatar": normalize_avatar(user.get("avatar", "")),
                     "content": str(BiliClient._extract_text(content))[:300],
+                    "title": str(item.get("title") or "")[:120],   # 原动态标题
                     "link": link,
+                    "dynamic_id": dyn_id,   # 用于关联 Activity
                 })
             return out
         except Exception:

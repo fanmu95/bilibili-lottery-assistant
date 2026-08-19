@@ -495,9 +495,9 @@ def participate_triple(db: Session = Depends(get_db)):
                 client=act_client, dynamic_id=act.activity_id,
                 activity_text=(act.desc or "") or act.title or "",
                 llm_cfg=llm_cfg,
-                allow_network=mode in ("random_comment", "llm_generate", "random"))
+                allow_network=mode in ("llm_generate", "random"))
             comment_text = res["text"]
-            if not act.comment_text and mode in ("random_comment", "llm_generate", "random"):
+            if not act.comment_text and mode in ("llm_generate", "random"):
                 act.comment_text = comment_text
         # 真实互动
         action_errors = []

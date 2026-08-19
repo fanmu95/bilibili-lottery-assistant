@@ -1,9 +1,10 @@
-"""参与文案解析：自定义文案 / 借用随机评论 / LLM 生成贴合评论
+"""参与文案解析：自定义文案池 / LLM 生成贴合评论（随机混合）
 
 对齐 bilibinggo participate-text 语义：
-- custom:        使用设置项 participate_text
-- random_comment: 拉取动态评论区，跳过前 5 条热评，在 5~65 条间随机借一条
+- custom:        从设置项 participate_text（多行，一行一条评论）中随机挑一条
 - llm_generate:  用 LLM 根据活动正文生成贴合该活动的转发评论
+- random:        随机混合：随机从【LLM 贴合评论 / 自定义文案池】中挑一种，
+                 失败自动降级到自定义文案池
 
 调用方：activities.py participate / participate-triple / batch-participate
 """
@@ -14,11 +15,6 @@ import time
 from . import bili_client
 from . import llm_client
 
-REPLY_MAIN_URL = "https://api.bilibili.com/x/v2/reply/main"
-REPLY_PAGE_SIZE = 20
-REPLY_FETCH_PAGES = 3
-REPLY_SKIP_HEAD = 5          # 跳过前 5 条（热评/广告）
-REPLY_POOL_END_EXCLUSIVE = 65
 MAX_TEXT_LEN = 100
 
 # B 站评论自带表情代码（文本代码，B 站会渲染成表情图；比 emoji 更贴地气）
@@ -30,80 +26,16 @@ BILI_EMOJI_CODES = [
     "[OK]", "[歪嘴笑]", "[抱拳]", "[再见]", "[无语]", "[哦豁]",
 ]
 
-# 内置兜底文案池：真人随手会打的自然评论（少 emoji、无机器人口号），
-# 供 random 模式/兜底使用，避免「关注+转发，支持一下，谢谢！」式生硬文案。
-# 部分条目带 B 站表情代码（[doge] 等），更拟人；每条最多 1 个。
-FALLBACK_COMMENT_POOL = [
-    "蹲一个，这个看起来真不错",
-    "哇这个可以啊，支持一下 [打call]",
-    "质感看着挺好的，关注了",
-    "这波福利诚意满满，冲 [doge]",
-    "来了来了，支持一波",
-    "看着有点心动，先留个脚印 [星星眼]",
-    "正好最近想入手，蹲一个",
-    "颜值在线，属实是爱了 [喜欢]",
-    "路过支持一下，祝活动顺利",
-    "这个真不错，先关注了",
-    "好家伙，这福利可以的 [妙啊]",
-    "围观群众路过，支持 [吃瓜]",
-    "质量看着不错，支持一下",
-    "好东西要分享，转给朋友看看",
-    "最近正缺这个，来碰碰运气",
-    "支持一下，做得挺好",
-    "这个可以有，关注了",
-    "感觉挺用心的，支持",
-    "不错不错，观望一下",
-    "看着挺香的，蹲个结果",
-    "这波操作可以，点赞 [OK]",
-    "来得早不如来得巧，支持",
-    "心动了，蹲一个 [doge]",
-    "支持支持，等后续",
-    # ---- 极短评（B 站抽奖评论真实风格，与上面长评混合更拟人）----
-    "好运连连",
-    "抽我",
-    "好运",
-    "蹲",
-    "冲",
-    "羡慕了",
-    "想要",
-    "排一个",
-    "带带我",
-    "沾沾喜气",
-    "锦鲤附体",
-    "好运加持",
-    "试试手气",
-    "随缘",
-    "前排占座",
-    "凑个热闹",
-    "666",
-    "爱了爱了",
-    # ---- 第二批极短评（扩充短评占比，混合更自然）----
-    "欧皇保佑",
-    "抽中我",
-    "选我选我",
-    "就决定是我了",
-    "蹭蹭欧气",
-    "坐等欧气",
-    "好运常伴",
-    "冲鸭",
-    "占楼",
-    "蹲住",
-    "码住",
-    "碰碰运气",
-    "来一个",
-    "眼馋",
-    "馋了",
-    "沾光",
-    "借点欧气",
-    "祈福",
-    "想中一次",
-    "试试看",
-]
+# 自定义文案池解析：participate_text 设置项为多行文本（一行一条评论），
+# 供 custom / random 模式及兜底使用——用户完全掌控文案内容，热更新。
 
 
-def pick_fallback_comment() -> str:
-    """从内置兜底文案池随机取一条"""
-    return random.choice(FALLBACK_COMMENT_POOL)
+def pick_custom_pool_comment(custom_text: str) -> str:
+    """从自定义文案池（多行文本，一行一条）随机挑一条；空返回空串"""
+    for line in (custom_text or "").splitlines():
+        if line.strip():
+            return random.choice([l.strip() for l in (custom_text or "").splitlines() if l.strip()])
+    return ""
 
 
 # LLM 生成评论的提示词（理解驱动：简短随意，去 AI 味）
@@ -124,130 +56,6 @@ LLM_COMMENT_PROMPT = (
     "「祝自己」这类机器人口号，也不要说「我真的很想要」这种客套话；\n"
     "⑤只输出评论本身，不要引号。"
 )
-
-
-def _extract_comment_id_and_type(detail: dict) -> tuple[str, int]:
-    """从动态详情提取评论所需的 oid 与 comment_type（对齐 bilibinggo）"""
-    basic = detail.get("basic") or {}
-    if not isinstance(basic, dict):
-        basic = {}
-    rid = str(basic.get("comment_id_str") or detail.get("id_str") or "")
-    ctype = int(basic.get("comment_type") or 17)
-    return rid, ctype
-
-
-def fetch_reply_messages(client: bili_client.BiliClient, dynamic_id: str,
-                         pages: int = REPLY_FETCH_PAGES,
-                         page_size: int = REPLY_PAGE_SIZE) -> list[str]:
-    """拉取动态评论区内容。
-
-    实测：匿名只返回 3 条热评，登录态才返回完整评论（20 条/页）——
-    借用评论本就是参与账号身份操作，用登录 session。
-    """
-    detail = client.get_dynamic_detail(dynamic_id)
-    if not detail:
-        return []
-    rid, ctype = _extract_comment_id_and_type(detail)
-    if not rid:
-        return []
-    messages = []
-    next_cursor = 0
-    for _ in range(max(1, pages)):
-        try:
-            r = client.session.get(
-                REPLY_MAIN_URL,
-                params={"oid": rid, "type": ctype, "mode": 2,
-                        "next": next_cursor, "ps": page_size},
-                headers={"Referer": f"https://www.bilibili.com/opus/{dynamic_id}"},
-                timeout=12)
-            d = r.json()
-            if d.get("code") != 0:
-                break
-            data = d.get("data") or {}
-            replies = data.get("replies") or []
-            if isinstance(replies, list):
-                for reply in replies:
-                    content = reply.get("content") or ""
-                    if isinstance(content, dict):
-                        msg = str(content.get("message") or "")
-                    else:
-                        # B 站评论 content 可能是纯文本（非 dict）
-                        msg = str(content)
-                    if msg:
-                        messages.append(msg)
-            cursor = data.get("cursor") or {}
-            if not isinstance(cursor, dict) or cursor.get("is_end"):
-                break
-            next_raw = cursor.get("next")
-            if next_raw is None:
-                break
-            next_cursor = int(next_raw)
-        except Exception:
-            break
-    return messages
-
-
-def pick_random_comment(messages: list[str]) -> str | None:
-    """在评论池（跳过前 5 条热评）中随机借一条"""
-    pool = messages[REPLY_SKIP_HEAD:REPLY_POOL_END_EXCLUSIVE]
-    if not pool:
-        return None
-    return random.choice(pool)
-
-
-def fetch_reply_users(client: bili_client.BiliClient, dynamic_id: str,
-                      pages: int = REPLY_FETCH_PAGES,
-                      page_size: int = REPLY_PAGE_SIZE) -> list[dict]:
-    """拉取动态评论区用户（职业抽奖号发现用）：[{uid, uname, message}]"""
-    detail = client.get_dynamic_detail(dynamic_id)
-    if not detail:
-        return []
-    rid, ctype = _extract_comment_id_and_type(detail)
-    if not rid:
-        return []
-    users = []
-    seen_uids = set()
-    next_cursor = 0
-    for _ in range(max(1, pages)):
-        try:
-            r = client.session.get(
-                REPLY_MAIN_URL,
-                params={"oid": rid, "type": ctype, "mode": 2,
-                        "next": next_cursor, "ps": page_size},
-                headers={"Referer": f"https://www.bilibili.com/opus/{dynamic_id}"},
-                timeout=12)
-            d = r.json()
-            if d.get("code") != 0:
-                break
-            data = d.get("data") or {}
-            replies = data.get("replies") or []
-            if isinstance(replies, list):
-                for reply in replies:
-                    member = reply.get("member") or {}
-                    uid = str(member.get("mid") or "")
-                    if not uid or uid in seen_uids:
-                        continue
-                    seen_uids.add(uid)
-                    content = reply.get("content") or ""
-                    if isinstance(content, dict):
-                        msg = str(content.get("message") or "")
-                    else:
-                        msg = str(content)
-                    users.append({
-                        "uid": uid,
-                        "uname": member.get("uname", "") or uid,
-                        "message": msg[:100],
-                    })
-            cursor = data.get("cursor") or {}
-            if not isinstance(cursor, dict) or cursor.get("is_end"):
-                break
-            next_raw = cursor.get("next")
-            if next_raw is None:
-                break
-            next_cursor = int(next_raw)
-        except Exception:
-            break
-    return users
 
 
 def generate_llm_comment(llm_cfg: dict, activity_text: str) -> str | None:
@@ -720,12 +528,18 @@ def _ensure_comment_pools_locked(db, limit: int = 8, newest_first: bool = False)
             pool = generated.get(str(a.id))
             if pool:
                 if mode == "random":
-                    # random 混合模式：池里掺入内置兜底短评（最后一条换成兜底），
-                    # 避免预生成池全为 LLM 评论导致"真实/LLM/兜底"混合失效；
+                    # random 混合模式：池里掺入自定义文案池短评（最后一条换掉），
+                    # 避免预生成池全为 LLM 评论导致"LLM/自定义"混合失效；
                     # 参与时按账号从池取，天然混出不同来源的评论
                     pool = list(pool)
                     if len(pool) > 1:
-                        pool[-1] = pick_fallback_comment()
+                        try:
+                            _cust_row = db.query(models.Setting).filter_by(
+                                key="participate_text").first()
+                            pool[-1] = pick_custom_pool_comment(
+                                _cust_row.value if _cust_row else "")
+                        except Exception:
+                            pass
                         random.shuffle(pool)
                 a.comment_text = _json.dumps(pool, ensure_ascii=False)
                 cnt += 1
@@ -753,39 +567,25 @@ def resolve_participate_text(    *,
     """解析参与文案，返回 {text, source, pool_size?, generated?}
 
     mode:
-      custom          -> 设置的自定义文案
-      random_comment  -> 评论区随机借一条（失败回退兜底文案池）
-      llm_generate    -> LLM 生成贴合正文的评论（失败回退兜底文案池）
-      random          -> 随机混合：从【真实评论 / LLM 生成 / 内置兜底文案】中
-                         随机挑一种策略，失败自动降级到兜底文案池
-    allow_network=False 时跳过评论拉取/LLM（纯本地，用于批量预生成测试）
+      custom          -> 从自定义文案池（participate_text 多行）随机挑一条
+      llm_generate    -> LLM 生成贴合正文的评论（失败回退自定义文案池）
+      random          -> 随机混合：从【LLM 生成 / 自定义文案池】中随机挑一种
+                         策略，失败自动降级到自定义文案池
+    allow_network=False 时跳过 LLM（纯本地，用于批量预生成测试）
     """
     text = ""
     source = "custom"
     extra = {}
 
     if mode == "random":
-        # 随机混合：打乱策略顺序逐个尝试（真实评论 / LLM / 兜底文案）
+        # 随机混合：打乱策略顺序逐个尝试（LLM 贴合评论 / 自定义文案池）
         strategies = []
-        if allow_network and client:
-            strategies.append("random_comment")
         if allow_network and llm_cfg and llm_cfg.get("base_url") and llm_cfg.get("model"):
             strategies.append("llm_generate")
         strategies.append("template")
         random.shuffle(strategies)
         for s in strategies:
-            if s == "random_comment":
-                try:
-                    messages = fetch_reply_messages(client, dynamic_id)
-                    picked = pick_random_comment(messages)
-                    extra["pool_size"] = max(0, len(messages) - REPLY_SKIP_HEAD)
-                    if picked:
-                        text = picked[:MAX_TEXT_LEN]
-                        source = "random_comment"
-                        break
-                except Exception:
-                    pass
-            elif s == "llm_generate":
+            if s == "llm_generate":
                 generated = generate_llm_comment(llm_cfg, activity_text)
                 extra["generated"] = True
                 if generated:
@@ -793,20 +593,10 @@ def resolve_participate_text(    *,
                     source = "llm_generate"
                     break
             else:
-                text = pick_fallback_comment()
+                text = pick_custom_pool_comment(custom_text)
                 source = "template"
-                break
-
-    if mode == "random_comment" and allow_network and client:
-        try:
-            messages = fetch_reply_messages(client, dynamic_id)
-            picked = pick_random_comment(messages)
-            extra["pool_size"] = max(0, len(messages) - REPLY_SKIP_HEAD)
-            if picked:
-                text = picked[:MAX_TEXT_LEN]
-                source = "random_comment"
-        except Exception:
-            pass
+                if text:
+                    break
 
     if mode == "llm_generate" and allow_network and llm_cfg:
         generated = generate_llm_comment(llm_cfg, activity_text)
@@ -816,10 +606,9 @@ def resolve_participate_text(    *,
             source = "llm_generate"
 
     if not text:
-        # 兜底：优先内置自然文案池（比"关注+转发，支持一下"生硬文案真实），
-        # 自定义文案存在时仍优先自定义。
-        template = pick_fallback_comment()
-        text = (custom_text or template or fallback_text or "").strip()
+        # 兜底：自定义文案池（多行随机挑一条）→ 调用方兜底文案
+        template = pick_custom_pool_comment(custom_text)
+        text = (template or fallback_text or "").strip()
         if source != "custom":
             source = "custom_fallback"
     return {"text": text[:MAX_TEXT_LEN], "source": source, **extra}
