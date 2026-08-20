@@ -17,6 +17,72 @@ from . import llm_client
 
 MAX_TEXT_LEN = 100
 
+REPLY_MAIN_URL = "https://api.bilibili.com/x/v2/reply/main"
+
+
+def _extract_comment_id_and_type(detail: dict) -> tuple[str, int]:
+    """从动态详情提取评论所需的 oid 与 comment_type（对齐 bilibinggo）"""
+    basic = detail.get("basic") or {}
+    if not isinstance(basic, dict):
+        basic = {}
+    rid = str(basic.get("comment_id_str") or detail.get("id_str") or "")
+    ctype = int(basic.get("comment_type") or 17)
+    return rid, ctype
+
+
+def fetch_reply_users(client: bili_client.BiliClient, dynamic_id: str,
+                      pages: int = 3, page_size: int = 20) -> list[dict]:
+    """拉取动态评论区用户（职业抽奖号发现用）：[{uid, uname, message}]"""
+    detail = client.get_dynamic_detail(dynamic_id)
+    if not detail:
+        return []
+    rid, ctype = _extract_comment_id_and_type(detail)
+    if not rid:
+        return []
+    users = []
+    seen_uids = set()
+    next_cursor = 0
+    for _ in range(max(1, pages)):
+        try:
+            r = client.session.get(
+                REPLY_MAIN_URL,
+                params={"oid": rid, "type": ctype, "mode": 2,
+                        "next": next_cursor, "ps": page_size},
+                headers={"Referer": f"https://www.bilibili.com/opus/{dynamic_id}"},
+                timeout=12)
+            d = r.json()
+            if d.get("code") != 0:
+                break
+            data = d.get("data") or {}
+            replies = data.get("replies") or []
+            if isinstance(replies, list):
+                for reply in replies:
+                    member = reply.get("member") or {}
+                    uid = str(member.get("mid") or "")
+                    if not uid or uid in seen_uids:
+                        continue
+                    seen_uids.add(uid)
+                    content = reply.get("content") or ""
+                    if isinstance(content, dict):
+                        msg = str(content.get("message") or "")
+                    else:
+                        msg = str(content)
+                    users.append({
+                        "uid": uid,
+                        "uname": member.get("uname", "") or uid,
+                        "message": msg[:100],
+                    })
+            cursor = data.get("cursor") or {}
+            if not isinstance(cursor, dict) or cursor.get("is_end"):
+                break
+            next_raw = cursor.get("next")
+            if next_raw is None:
+                break
+            next_cursor = int(next_raw)
+        except Exception:
+            break
+    return users
+
 # B 站评论自带表情代码（文本代码，B 站会渲染成表情图；比 emoji 更贴地气）
 # 只收录评论语境通用、确定有效的代码；供 LLM 提示词参考与文案池使用。
 BILI_EMOJI_CODES = [

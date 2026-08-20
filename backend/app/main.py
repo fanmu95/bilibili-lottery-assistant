@@ -58,6 +58,20 @@ migrate()
 app = FastAPI(title="B站抽奖助手 API", version="1.0.0",
               description="哔哩哔哩自动化抽奖助手（对齐 bilibinggo 控制台契约）")
 
+# 全局异常日志：任何接口 500 时把完整 traceback 写入 data/app.log（exe 打包
+# 后 stdout 已重定向到 app.log；dev 环境直接打控制台），便于用户反馈定位
+import logging as _logging
+_logger = _logging.getLogger("bili.error")
+
+
+@app.exception_handler(Exception)
+async def _global_500(request, exc):
+    from fastapi.responses import JSONResponse
+    _logger.exception("接口异常 %s %s: %s",
+                      request.method, request.url.path, exc)
+    return JSONResponse(status_code=500,
+                        content={"detail": f"服务器内部错误：{exc}"})
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

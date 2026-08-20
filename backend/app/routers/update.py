@@ -14,6 +14,13 @@ router = APIRouter(prefix="/api/update", tags=["update"])
 
 logger = logging.getLogger("bili.update")
 
+
+@router.get("/version")
+def version_info():
+    """轻量版本信息（侧边栏/关于页显示；本地读取，无网络）"""
+    return {"current": updater.get_current_version(),
+            "is_docker": updater.is_docker()}
+
 # 下载进度（内存态）：{running, total, downloaded, done, error, path}
 _download_state = {"running": False, "total": 0, "downloaded": 0,
                    "done": False, "error": "", "path": ""}

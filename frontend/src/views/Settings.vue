@@ -200,7 +200,7 @@
           <div class="tab-wrap">
             <el-descriptions :column="1" border style="max-width: 720px">
               <el-descriptions-item label="项目">B站自动化抽奖助手</el-descriptions-item>
-              <el-descriptions-item label="版本">v1.0.0</el-descriptions-item>
+              <el-descriptions-item label="版本">{{ appVersion || 'v1.0.0' }}</el-descriptions-item>
               <el-descriptions-item label="技术栈">Vue 3 + Element Plus + Vite / FastAPI + SQLAlchemy + SQLite</el-descriptions-item>
               <el-descriptions-item label="接口契约">对齐 bilibinggo（luovicter-collab/bilibinggo）控制台 API</el-descriptions-item>
               <el-descriptions-item label="功能">
@@ -281,6 +281,7 @@ const features = ['多账号管理', '扫码登录', '私信回复查看', 'DM �
 
 // ---------- 版本检查 / 自动更新 ----------
 const updateInfo = reactive({ current: '', latest: '', has_update: false, download_url: '', release_url: '', is_docker: false })
+const appVersion = ref('')   // 关于页版本（/update/version 本地读取）
 const updDownloading = ref(false)
 const updReady = ref(false)
 const updPercent = ref(0)
@@ -480,6 +481,7 @@ async function save() {
 onMounted(() => {
   loadSettings()
   checkUpdate()
+  updateApi.version().then(v => { appVersion.value = v.current || '' }).catch(() => {})
 })
 onUnmounted(() => { if (updTimer) { clearInterval(updTimer); updTimer = null } })
 </script>

@@ -39,15 +39,16 @@ def get_current_version() -> str:
 
 
 def is_docker() -> bool:
-    """是否为 Docker 容器环境（Dockerfile 设置了 BILI_DATA_DIR=/app/data）。
+    """是否为 Docker 容器环境。
 
-    Docker 端更新方式 = docker compose pull && up -d（镜像重建），
-    容器内 bat 覆盖方案不适用——前端据此隐藏下载/立即更新按钮。
+    注意：Windows exe（run.py）启动时也会设置 BILI_DATA_DIR（指向 exe 旁
+    data/ 数据目录）——因此 **win32 恒 False**（绝不误判 Docker）；
+    仅非 Windows 且存在 BILI_DATA_DIR（Dockerfile 设置 /app/data）才视为容器。
     """
     try:
-        if os.environ.get("BILI_DATA_DIR"):
-            return True
-        return sys.platform != "win32"
+        if sys.platform == "win32":
+            return False
+        return bool(os.environ.get("BILI_DATA_DIR"))
     except Exception:
         return False
 

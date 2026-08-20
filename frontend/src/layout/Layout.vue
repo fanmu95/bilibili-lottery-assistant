@@ -11,7 +11,7 @@
           <span>{{ item.title }}</span>
         </el-menu-item>
       </el-menu>
-      <div class="aside-footer">v1.0.0 · 本地控制台</div>
+      <div class="aside-footer">{{ appVersion }} · 本地控制台</div>
     </el-aside>
 
     <el-container>
@@ -41,11 +41,12 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Moon, Sunny } from '@element-plus/icons-vue'
-import { summaryApi } from '../api'
+import { summaryApi, updateApi } from '../api'
 
 const route = useRoute()
 const isDark = ref(document.documentElement.classList.contains('dark'))
 const backendOk = ref(false)
+const appVersion = ref('')   // 左下角版本（/update/version 本地读取）
 
 const menus = [
   { path: '/accounts', title: '账号管理', icon: 'User' },
@@ -76,6 +77,8 @@ async function checkHealth() {
 onMounted(() => {
   checkHealth()
   timer = setInterval(checkHealth, 15000)
+  // 左下角版本（本地读取，不依赖网络）
+  updateApi.version().then(v => { appVersion.value = v.current || '' }).catch(() => {})
 })
 onUnmounted(() => clearInterval(timer))
 </script>

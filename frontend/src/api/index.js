@@ -109,6 +109,7 @@ export const cleanupApi = {
 // ---------------- 版本检查 / 自动更新 ----------------
 export const updateApi = {
   check: () => http.get('/update/check'),
+  version: () => http.get('/update/version'),
   download: () => http.get('/update/download'),
   progress: () => http.get('/update/progress'),
   apply: () => http.post('/update/apply'),

@@ -41,12 +41,15 @@ def _strong_lottery(it) -> bool:
 
 
 def _pick_candidate_activity(db) -> int | None:
-    """选一个待参与且未做过职业号发现的活动（自动模式冷却期用）。
+    """选一个未做过职业号发现的活动（自动模式冷却期用）。
 
     按 id 降序（最新入库优先），跳过已发现过的，避免重复分析同一活动。
+    候选状态放宽为 pending/participated——活动被账号参与后 status 变
+    participated（甚至又回 pending），若只认 pending 会选不到候选导致
+    职业号发现"开了却不自动扫描"。
     """
     act = (db.query(_models.Activity)
-           .filter(_models.Activity.status == "pending",
+           .filter(_models.Activity.status.in_(["pending", "participated"]),
                    _models.Activity.pro_discovered_at.is_(None))
            .order_by(_models.Activity.id.desc())
            .first())
