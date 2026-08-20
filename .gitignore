@@ -34,3 +34,10 @@ dist/
 ci_*.log
 
 seed-data/
+
+# 本地打包产物（CI 构建，不入库）
+backend/_internal/
+backend/LotteryAssistant.exe
+backend/build_win/
+backend/dist_win/
+*.exe
